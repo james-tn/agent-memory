@@ -211,6 +211,8 @@ The `CosmosMemoryProvider` implements the Agent Framework's `ContextProvider` in
 #### How It Works
 
 ```python
+from agent_framework import ChatAgent
+from agent_framework.azure import AzureOpenAIChatClient
 from memory.cosmos_memory_provider import CosmosMemoryProvider
 
 # 1. Create memory provider
