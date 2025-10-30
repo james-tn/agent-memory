@@ -16,7 +16,7 @@ class CosmosMemoryProviderConfig:
     """
     
     # === CosmosDB Connection ===
-    database_name: str = "agent_memory"
+    database_name: str = "cosmosvector"
     interactions_container: str = "interactions"
     summaries_container: str = "session_summaries"
     insights_container: str = "insights"

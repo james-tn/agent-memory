@@ -533,7 +533,7 @@ async def retrieve_facts(request: RetrieveFactsRequest):
         
         # Retrieve facts
         orchestrator = session_state.orchestrator
-        facts = await orchestrator.retrieve_facts(request.query, top_k=request.top_k)
+        facts = await orchestrator.retrieve_facts(request.query)
         
         return {
             "query": request.query,

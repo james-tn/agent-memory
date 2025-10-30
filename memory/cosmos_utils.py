@@ -32,7 +32,7 @@ class CosmosUtils:
         self.embedding_deployment = embedding_deployment or os.getenv(
             "AZURE_OPENAI_EMB_DEPLOYMENT", "text-embedding-ada-002"
         )
-        print("embedding model ", embedding_deployment)
+        print("embedding model ", self.embedding_deployment)
     
     def get_embedding(self, text: str) -> List[float]:
         """
@@ -107,8 +107,7 @@ class CosmosUtils:
             where_clause = " WHERE " + " AND ".join(conditions)
         
         query = f"""
-        SELECT TOP @top_k c.id, c.user_id, c.session_id, c.timestamp, c.content, 
-               c.summary, c.metadata, c.insight_text, c.insight_type, c.category,
+        SELECT TOP @top_k c.*,
                VectorDistance(c.{vector_field}, @embedding) AS similarity_score
         FROM c
         {where_clause}
@@ -195,10 +194,10 @@ class CosmosUtils:
             rrf_args += f", {weights_str}"
         
         # Build hybrid search query using ORDER BY RANK RRF
+        # Use c.* to select all fields (avoids selecting non-existent fields)
         query = f"""
-        SELECT TOP {top_k} c.id, c.user_id, c.session_id, c.timestamp, c.content,
-               c.summary, c.metadata, c.insight_text, c.insight_type, c.category,
-               VectorDistance(c.{vector_field}, {embedding_literal}) AS vector_score
+        SELECT TOP {top_k} *
+              
         FROM c
         {where_clause}
         ORDER BY RANK RRF({rrf_args})

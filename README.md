@@ -11,7 +11,8 @@ The Agent Memory Service is a **standalone microservice** that enables AI agents
 - **Microsoft Agent Framework Integration**: Native `ContextProvider` implementation for seamless memory injection
 - **Multi-tier Memory Architecture**: Active turns → Cumulative summaries → Session summaries → Long-term insights
 - **RESTful API**: Language-agnostic HTTP endpoints for any agent framework
-- **Intelligent Retrieval**: Semantic and contextual search across conversation history
+- **On-Demand Memory Search**: Agents can proactively search memory via `search_memory()` tool
+- **Intelligent Retrieval**: Contextual Fact Retrieval (CFR) with **hybrid search** (vector + full-text) across all memory tiers
 - **Automatic Reflection**: Extract insights and patterns from conversations
 - **Cost-Efficient**: Compress old context, retrieve on-demand
 - **Production-Ready**: Session pooling, background tasks, health monitoring
@@ -367,29 +368,47 @@ curl -X POST http://localhost:8000/sessions/end \
 
 ---
 
-## 📖 Example: Financial Advisor
+## 📖 Examples
 
-See [`examples/demo1_remote.py`](examples/demo1_remote.py)
+### Example 1: Financial Advisor (Automatic Context)
+
+See [`examples/demo1_financial_advisor.py`](examples/demo1_financial_advisor.py)
 
 **Scenario:**
 - Session 1: User discusses retirement planning, reveals age, savings, risk tolerance
 - Session 2 (days later): User asks about investments - agent remembers profile!
 - Session 3 (weeks later): Tax strategies - agent recalls all previous context
 
-**Run the demo:**
+**What you'll see:**
+- Session 1: Agent learns user is 35, conservative, $50k saved, goal of $60k/year at 65
+- Session 2: Agent remembers profile WITHOUT re-asking! Provides personalized recommendations
+- Session 3: Agent continues to build on previous knowledge
+
+### Example 2: Medical Assistant (On-Demand Search)
+
+See [`examples/demo4_medical_assistant.py`](examples/demo4_medical_assistant.py)
+
+**Scenario:**
+- Session 1: Patient reports penicillin allergy, prescribed Lisinopril
+- Session 2: Headache complaint - agent proactively searches for allergies
+- Session 3: Patient requests Amoxicillin - **agent prevents dangerous prescription!**
+
+**What you'll see:**
+- Agent **decides** when to search memory (not passive injection)
+- Searches across interactions, summaries, and insights
+- Prevents prescribing Amoxicillin to patient with penicillin allergy
+- Critical safety check using `search_memory()` tool
+
+**Run the demos:**
 
 ```bash
 # Terminal 1: Start memory service
 uv run run_server.py
 
 # Terminal 2: Run demo
-uv run python examples/demo1_remote.py
+uv run python examples/demo1_financial_advisor.py
+uv run python examples/demo4_medical_assistant.py
 ```
-
-**What you'll see:**
-- Session 1: Agent learns user is 35, conservative, $50k saved, goal of $60k/year at 65
-- Session 2: Agent remembers profile WITHOUT re-asking! Provides personalized recommendations
-- Session 3: Agent continues to build on previous knowledge
 
 ---
 
@@ -495,16 +514,44 @@ Get current context for prompt injection.
 ```
 
 #### POST /memory/retrieve
-Semantic search across conversation history.
+On-demand semantic search across all memory tiers. Used by the `search_memory()` tool.
+
+**What it does:**
+- Searches interactions (conversation chunks) with **hybrid search** (vector + full-text)
+- Searches session summaries with **hybrid search** (vector + full-text)
+- Searches insights (long-term learnings) with **hybrid search** (vector + full-text)
+- Uses Contextual Fact Retrieval (CFR) agent to intelligently combine results
+- Returns formatted facts ready for agent consumption
 
 **Request:**
 ```json
 {
   "user_id": "string",
   "session_id": "string",
-  "query": "string",
-  "top_k": 5
+  "query": "string"
 }
+```
+
+**Response:**
+```json
+{
+  "query": "patient allergies medication",
+  "facts": "The patient has a documented penicillin allergy that was reported during their initial visit 3 months ago. They are currently taking Lisinopril 10mg daily for blood pressure management. No other known drug allergies have been reported.",
+  "count": 3
+}
+```
+
+**Example Use:**
+```python
+# Agent tool usage
+async def search_memory(self, query: str) -> str:
+    """Search your past memory for relevant facts."""
+    response = await self.client.post(
+        f"{self.service_url}/memory/retrieve",
+        json={"user_id": self.user_id, "session_id": self.session_id, "query": query}
+    )
+    result = response.json()
+    return result["facts"]  # Returns formatted facts string
 ```
 
 ### Insights & Summaries
@@ -662,7 +709,68 @@ User Insights:
 
 **Result:** Agent doesn't re-ask known information!
 
-### 5. Session Pooling
+### 5. On-Demand Memory Search (Agent Tool)
+
+**Proactive Memory Retrieval:**
+
+Instead of passively receiving context, agents can **actively search** their memory when needed using the `search_memory()` tool:
+
+```python
+# Add search_memory as a tool
+agent = ChatAgent(
+    client=AzureOpenAIChatClient(...),
+    tools=[
+        check_drug_interactions,
+        get_drug_info,
+        memory.search_memory  # ← Agent can search memory proactively!
+    ],
+    context_providers=[memory]  # Still gets automatic context too
+)
+```
+
+**How It Works:**
+
+1. **Agent decides** when to search based on conversation context
+2. Searches across all memory tiers: interactions, summaries, insights
+3. Uses Contextual Fact Retrieval (CFR) with **hybrid search** (vector + full-text)
+4. Returns relevant facts formatted for immediate use
+
+**Example - Medical Safety Check:**
+
+```
+Patient: "I'd like to get Amoxicillin for this infection"
+
+Agent thinks: "Amoxicillin is a penicillin. I should check for allergies!"
+
+Agent calls: search_memory("patient allergies penicillin medication")
+
+Memory returns: "Patient has documented penicillin allergy (reported 3 months ago). 
+Currently taking Lisinopril for blood pressure."
+
+Agent: "I see from your records that you have a penicillin allergy. Amoxicillin 
+is a penicillin-based antibiotic and could cause a serious reaction. Let me 
+recommend a safer alternative like Azithromycin instead."
+```
+
+**Benefits:**
+
+- ✅ **Scalable**: Only retrieves what's needed, not everything every turn
+- ✅ **Contextual**: Agent searches when conversation requires it
+- ✅ **Safety-critical**: Perfect for medical, financial, legal scenarios
+- ✅ **Tool-native**: Works like any other agent tool
+- ✅ **Smart retrieval**: CFR agent uses hybrid search (vector + full-text) across all memory tiers
+
+**Use Cases:**
+
+- 🏥 Medical: Check allergies, drug interactions, medical history
+- 💰 Financial: Recall investment preferences, risk tolerance, past decisions
+- 🎓 Education: Review past lessons, identify knowledge gaps, track progress
+- 🛍️ Shopping: Remember preferences, past purchases, style preferences
+- ⚖️ Legal: Reference past cases, client preferences, case details
+
+**See Demo:** [`examples/demo4_medical_assistant.py`](examples/demo4_medical_assistant.py) - Shows agent proactively preventing dangerous drug prescription by searching memory for allergies!
+
+### 6. Session Pooling
 
 **In-Memory LRU Cache:**
 - Keeps 1000 most recent sessions in memory

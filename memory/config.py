@@ -14,7 +14,7 @@ class MemoryConfig:
     num_recent_sessions_for_init: int = 2  # Recent session summaries to load at start
     
     # CosmosDB settings (with sensible defaults)
-    database_name: str = "agent_memory"
+    database_name: str = "cosmosvector"
     interactions_container: str = "interactions"
     summaries_container: str = "session_summaries"
     insights_container: str = "insights"

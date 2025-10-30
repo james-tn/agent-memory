@@ -253,7 +253,7 @@ def test_legacy_config_properties():
     assert config.K_TURN_BUFFER == 15
     assert config.N_ACTIVE_TURNS == 7
     assert config.INSIGHT_CONFIDENCE_THRESHOLD == 0.8
-    assert config.COSMOS_DB_NAME == "agent_memory"
+    assert config.COSMOS_DB_NAME == "vectordb"
     print("✓ PASSED")
 
 

@@ -55,6 +55,29 @@ This folder contains comprehensive demos showcasing the multi-tier memory capabi
 
 ---
 
+### Demo 4: Medical Assistant (`demo4_medical_assistant.py`)
+**Showcases:** On-demand memory search, critical safety checks, proactive memory retrieval
+
+**Scenario:**
+- Session 1: Initial visit - patient reports penicillin allergy, prescribed Lisinopril
+- Session 2: Follow-up - headache complaint (agent proactively searches for allergies)
+- Session 3: Urgent visit - patient requests Amoxicillin (agent prevents dangerous prescription!)
+
+**Key Features:**
+- ✅ **On-demand memory search** via `memory.search_memory()` tool
+- ✅ Agent proactively searches memory when needed (vs. passive context injection)
+- ✅ Critical safety checks (drug allergies, interactions)
+- ✅ Contextual Fact Retrieval (CFR) uses **hybrid search** (vector + full-text) across interactions, summaries, and insights
+- ✅ Real-world use case where memory search prevents harm
+
+**Why This Demo Matters:**
+- **Proactive vs Passive**: Unlike automatic context injection, the agent *decides* when to search memory
+- **Safety Critical**: Demonstrates memory for high-stakes scenarios (medical, financial, legal)
+- **Scalable**: Agent only searches when needed, not injecting all context every turn
+- **Tool Integration**: Shows `search_memory()` as a first-class tool alongside domain tools
+
+---
+
 ## Prerequisites
 
 1. **Azure CLI Authentication:**
@@ -93,6 +116,9 @@ python examples/demo2_shopping_assistant.py
 
 # Learning Assistant
 python examples/demo3_learning_assistant.py
+
+# Medical Assistant (with on-demand memory search)
+python examples/demo4_medical_assistant.py
 ```
 
 ## What Makes These Demos Special?

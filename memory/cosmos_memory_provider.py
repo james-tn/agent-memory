@@ -459,3 +459,69 @@ class CosmosMemoryProvider(ContextProvider):
         except httpx.HTTPError as e:
             logger.error(f"Failed to get summaries: {e}")
             return []
+    
+    async def search_memory(self, query: str) -> str:
+        """
+        Search your past memory specific to this user for relevant facts.
+        
+        Use this tool when you need to recall specific information about the user
+        that isn't in the current conversation context. The memory assistant will
+        intelligently search across past conversations, session summaries, and 
+        long-term insights to find relevant facts.
+        
+        This is particularly useful when:
+        - User asks you to recall something specific
+        - You need detailed historical information not in current context
+        - You want to provide highly personalized recommendations
+        - You need to verify or check past information
+        
+        Args:
+            query: Description of the facts you want to retrieve.
+                   Be specific about what information you're looking for.
+                   Examples:
+                   - "user's dietary restrictions and food allergies"
+                   - "user's investment risk tolerance and retirement goals"
+                   - "user's learning style and favorite subjects in math"
+                   - "products the user has purchased in the past"
+                   - "patient's medication history and known allergies"
+        
+        Returns:
+            Retrieved facts and context relevant to your query, formatted as
+            a readable string. Returns an error message if the session is not
+            started or if no relevant information is found.
+        """
+        if not self.session_started:
+            return "Error: Session not started. Cannot search memory."
+        
+        url = f"{self.service_url}/memory/retrieve"
+        payload = {
+            "user_id": self.user_id,
+            "session_id": self.session_id,
+            "query": query,
+            "top_k": 5
+        }
+        
+        try:
+            print(f"\n🔍 [MEMORY SEARCH] Query: '{query}'")
+            
+            response = await self.client.post(url, json=payload)
+            response.raise_for_status()
+            result = response.json()
+            
+            # The CFR agent returns synthesized facts as a string
+            facts_text = result.get("facts", "")
+            
+            if not facts_text or facts_text.strip() == "":
+                print(f"   ❌ No relevant information found")
+                return f"No relevant information found in memory for: '{query}'"
+            
+            print(f"   ✅ Found relevant information:")
+            print(f"   {facts_text[:200]}..." if len(facts_text) > 200 else f"   {facts_text}")
+            print()
+            
+            return f"Memory search results for '{query}':\n\n{facts_text}"
+        
+        except httpx.HTTPError as e:
+            logger.error(f"Failed to search memory: {e}")
+            print(f"   ❌ Error searching memory: {e}\n")
+            return "Error: Unable to search memory at this time. Please try again later."

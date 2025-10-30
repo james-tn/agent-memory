@@ -74,8 +74,13 @@ class ContextualFactRetrieval:
             max_results: Annotated[int, "Maximum number of results to return (default 5)"] = 5
         ) -> str:
             """Search past conversation interactions."""
+            print(f"\n  🔎 [CFR] Searching interactions for: '{query}'")
             results = await self._search_interactions(query, max_results)
-            return self._format_interactions_results(results)
+            formatted = self._format_interactions_results(results)
+            print(f"     ✓ Found {len(results)} interactions")
+            if results:
+                print(f"     Results preview: {formatted[:150]}...")
+            return formatted
         
         @ai_function(
             name="search_summaries",
@@ -86,8 +91,13 @@ class ContextualFactRetrieval:
             max_results: Annotated[int, "Maximum number of results to return (default 3)"] = 3
         ) -> str:
             """Search session summaries."""
+            print(f"\n  📋 [CFR] Searching summaries for: '{query}'")
             results = await self._search_summaries(query, max_results)
-            return self._format_summaries_results(results)
+            formatted = self._format_summaries_results(results)
+            print(f"     ✓ Found {len(results)} summaries")
+            if results:
+                print(f"     Results preview: {formatted[:150]}...")
+            return formatted
         
         @ai_function(
             name="search_insights",
@@ -98,8 +108,13 @@ class ContextualFactRetrieval:
             max_results: Annotated[int, "Maximum number of results to return (default 3)"] = 3
         ) -> str:
             """Search long-term insights."""
+            print(f"\n  💡 [CFR] Searching insights for: '{query}'")
             results = await self._search_insights(query, max_results)
-            return self._format_insights_results(results)
+            formatted = self._format_insights_results(results)
+            print(f"     ✓ Found {len(results)} insights")
+            if results:
+                print(f"     Results preview: {formatted[:150]}...")
+            return formatted
         
         # Create the Agent Framework agent with the search tools
         self.agent = ChatAgent(
@@ -135,7 +150,7 @@ After searching, synthesize the findings into a clear, concise response.""",
     
     async def _search_interactions(self, query: str, max_results: int = 5) -> List[Dict]:
         """
-        Internal method to search past conversation interactions using hybrid search (vector + full-text).
+        Internal method to search past conversation interactions using vector search.
         
         Args:
             query: Search query
@@ -147,27 +162,27 @@ After searching, synthesize the findings into a clear, concise response.""",
         # Generate embedding for query
         query_embedding = self.cosmos_utils.get_embedding(query)
         
-        # Use hybrid search for better retrieval (combines vector + full-text)
+        # Use vector search (hybrid search was causing BadRequest errors with nested metadata fields)
         try:
             results = self.cosmos_utils.execute_hybrid_search(
-                container=self.interactions_container,
                 query_text=query,
+                container=self.interactions_container,
                 query_embedding=query_embedding,
-                vector_field="summary_embedding",
-                full_text_fields=["summary", "mentioned_topics", "entities"],
+                vector_field="summary_vector",  # Correct field name
                 top_k=max_results,
-                filters={"user_id": self.user_id},
-                weights=[2, 1]  # Weight vector search 2x more than full-text
+                filters={"user_id": self.user_id}
             )
             
-            # Add similarity field for consistency with formatting
+            # Rename similarity_score to similarity for consistency
             for result in results:
-                if 'vector_score' in result:
-                    result['similarity'] = 1 - result['vector_score']  # Convert distance to similarity
+                if 'similarity_score' in result:
+                    result['similarity'] = result['similarity_score']
             
             return results
         except Exception as e:
             print(f"Error searching interactions: {e}")
+            import traceback
+            traceback.print_exc()
             return []
     
     def _format_interactions_results(self, results: List[Dict]) -> str:
@@ -177,17 +192,22 @@ After searching, synthesize the findings into a clear, concise response.""",
         
         formatted = ["Found relevant past conversations:\n"]
         for idx, interaction in enumerate(results, 1):
+            # Extract metadata fields (they're nested in metadata object)
+            metadata = interaction.get('metadata', {})
+            topics = metadata.get('mentioned_topics', [])
+            entities = metadata.get('entities', [])
+            
             formatted.append(
                 f"{idx}. {interaction.get('summary', 'N/A')}\n"
-                f"   Topics: {', '.join(interaction.get('mentioned_topics', []))}\n"
-                f"   Entities: {', '.join(interaction.get('entities', []))}\n"
-                f"   Similarity: {interaction.get('similarity', 'N/A'):.4f}\n"
+                f"   Topics: {', '.join(topics) if topics else 'None'}\n"
+                f"   Entities: {', '.join(entities) if entities else 'None'}\n"
+                f"   Similarity: {interaction.get('similarity', 0):.4f}\n"
             )
         return "\n".join(formatted)
     
     async def _search_summaries(self, query: str, max_results: int = 3) -> List[Dict]:
         """
-        Internal method to search session summaries using hybrid search (vector + full-text).
+        Internal method to search session summaries using vector search.
         
         Args:
             query: Search query
@@ -199,27 +219,27 @@ After searching, synthesize the findings into a clear, concise response.""",
         # Generate embedding for query
         query_embedding = self.cosmos_utils.get_embedding(query)
         
-        # Use hybrid search for better retrieval
+        # Use vector search
         try:
             results = self.cosmos_utils.execute_hybrid_search(
-                container=self.summaries_container,
                 query_text=query,
+                container=self.summaries_container,
                 query_embedding=query_embedding,
-                vector_field="summary_embedding",
-                full_text_fields=["summary", "key_topics"],
+                vector_field="summary_vector",  # Correct field name
                 top_k=max_results,
-                filters={"user_id": self.user_id},
-                weights=[2, 1]  # Weight vector search 2x more than full-text
+                filters={"user_id": self.user_id}
             )
             
-            # Add similarity field for consistency
+            # Rename similarity_score to similarity for consistency
             for result in results:
-                if 'vector_score' in result:
-                    result['similarity'] = 1 - result['vector_score']
+                if 'similarity_score' in result:
+                    result['similarity'] = result['similarity_score']
             
             return results
         except Exception as e:
             print(f"Error searching summaries: {e}")
+            import traceback
+            traceback.print_exc()
             return []
     
     def _format_summaries_results(self, results: List[Dict]) -> str:
@@ -239,7 +259,7 @@ After searching, synthesize the findings into a clear, concise response.""",
     
     async def _search_insights(self, query: str, max_results: int = 3) -> List[Dict]:
         """
-        Internal method to search long-term insights using hybrid search (vector + full-text).
+        Internal method to search long-term insights using vector search.
         
         Args:
             query: Search query
@@ -251,27 +271,27 @@ After searching, synthesize the findings into a clear, concise response.""",
         # Generate embedding for query
         query_embedding = self.cosmos_utils.get_embedding(query)
         
-        # Use hybrid search for better retrieval
+        # Use vector search
         try:
             results = self.cosmos_utils.execute_hybrid_search(
-                container=self.insights_container,
                 query_text=query,
+                container=self.insights_container,
                 query_embedding=query_embedding,
-                vector_field="insight_embedding",
-                full_text_fields=["insight_text", "category"],
+                vector_field="insight_vector",  # Correct field name
                 top_k=max_results,
-                filters={"user_id": self.user_id},
-                weights=[2, 1]  # Weight vector search 2x more than full-text
+                filters={"user_id": self.user_id}
             )
             
-            # Add similarity field for consistency
+            # Rename similarity_score to similarity for consistency
             for result in results:
-                if 'vector_score' in result:
-                    result['similarity'] = 1 - result['vector_score']
+                if 'similarity_score' in result:
+                    result['similarity'] = result['similarity_score']
             
             return results
         except Exception as e:
             print(f"Error searching insights: {e}")
+            import traceback
+            traceback.print_exc()
             return []
     
     def _format_insights_results(self, results: List[Dict]) -> str:
