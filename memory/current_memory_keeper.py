@@ -256,7 +256,7 @@ class CurrentMemoryKeeper:
                 f"{turn.role}: {turn.content}" for turn in turns
             ])
             
-            # Generate metadata using GPT-4o-mini
+            # Generate metadata using gpt-5-nanoo-mini
             metadata = await self._generate_metadata(conversation_text)
             
             # Generate embeddings
@@ -415,7 +415,7 @@ class CurrentMemoryKeeper:
     
     async def _generate_metadata(self, conversation_text: str) -> Dict:
         """
-        Generate metadata for conversation chunk using GPT-4o-mini with structured output.
+        Generate metadata for conversation chunk using gpt-5-nanoo-mini with structured output.
         
         Returns:
             Dict with summary, mentioned_topics, entities
@@ -457,7 +457,7 @@ class CurrentMemoryKeeper:
         new_turns: List[ConversationTurn]
     ) -> str:
         """
-        Update cumulative summary with new turns using GPT-4o-mini.
+        Update cumulative summary with new turns using gpt-5-nanoo-mini.
         
         Args:
             old_summary: Previous cumulative summary

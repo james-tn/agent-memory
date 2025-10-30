@@ -147,7 +147,7 @@ Categories:
 Frontend: Streamlit 1.31+
 Backend: Agent Memory Service (Python 3.12+)
 Database: Azure CosmosDB with vector search
-LLM: Azure OpenAI (GPT-4, GPT-4o-mini)
+LLM: Azure OpenAI (gpt-5-nano, gpt-5-nanoo-mini)
 Embeddings: text-embedding-ada-002
 ```
 

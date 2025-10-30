@@ -16,7 +16,7 @@ class CalendarEvent(BaseModel):
     participants: list[str]
 
 completion = client.responses.parse(
-    model="gpt-5-mini", # replace with the model deployment name of your gpt-4o 2024-08-06 deployment
+    model="gpt-5-mini", # replace with the model deployment name of your gpt-5-nanoo 2024-08-06 deployment
     input=[
         {"role": "system", "content": "Extract the event information."},
         {"role": "user", "content": "Alice and Bob are going to a science fair on Friday."},

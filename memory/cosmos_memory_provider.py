@@ -42,7 +42,7 @@ class CosmosMemoryProvider(ContextProvider):
         
         # Use with Agent Framework
         agent = ChatAgent(
-            model="gpt-4",
+            model="gpt-5-nano",
             context_providers=[memory_provider]
         )
         

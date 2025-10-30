@@ -82,11 +82,11 @@ Expected output:
 Host: 0.0.0.0:8000
 Session Pool: max=1000, ttl=30min
 CosmosDB: agent_memory
-OpenAI: gpt-4
+OpenAI: gpt-5-nano
 ============================================================
 INFO:     Started server process [12345]
 INFO:     Waiting for application startup.
-✓ Azure OpenAI client initialized: gpt-4
+✓ Azure OpenAI client initialized: gpt-5-nano
 ✓ Cosmos DB containers initialized: agent_memory
 ✓ CosmosUtils initialized with embeddings: text-embedding-ada-002
 ✓ Session pool initialized: max=1000, ttl=30min
@@ -364,7 +364,7 @@ All settings can be configured via environment variables (see `.env.example`):
 ### Azure OpenAI
 - `AZURE_OPENAI_ENDPOINT`: OpenAI endpoint URL
 - `AZURE_OPENAI_API_KEY`: API key
-- `AZURE_OPENAI_DEPLOYMENT`: Deployment name (e.g., `gpt-4`)
+- `AZURE_OPENAI_DEPLOYMENT`: Deployment name (e.g., `gpt-5-nano`)
 - `AZURE_OPENAI_API_VERSION`: API version (default: `2024-02-15-preview`)
 
 ### Azure Cosmos DB

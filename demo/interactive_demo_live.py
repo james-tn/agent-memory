@@ -170,48 +170,123 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Demo scenarios with realistic financial advisor conversations
+# Demo scenarios showcasing all 4 use cases
 SCENARIOS = {
-    "🌟 Scenario 1: New Client - First Session": {
-        "description": "First-time client discussing retirement planning. Watch the system build initial understanding and extract insights.",
-        "user_id": "demo_user_1",
-        "session_id": "session_first_meeting",
+    "💰 Financial Advisor - Session 1": {
+        "description": "💼 First-time client discussing retirement planning. Watch the system build initial understanding and extract insights.",
+        "user_id": "client_sarah",
+        "session_id": "financial_session_1",
+        "agent_type": "Financial Advisor",
         "conversation": [
             ("What is a Roth IRA?", "A Roth IRA is a retirement account where you contribute after-tax money, but all growth and withdrawals in retirement are tax-free. It's excellent for long-term wealth building, especially if you expect to be in a higher tax bracket later."),
             ("What are the contribution limits for 2024?", "For 2024, the Roth IRA contribution limit is $7,000 if you're under 50, or $8,000 if you're 50 or older. However, there are income limits that phase out your eligibility."),
-            ("Can I withdraw money early without penalties?", "Yes! You can withdraw your contributions anytime tax-free and penalty-free since you already paid taxes on them. However, earnings can only be withdrawn tax-free after age 59½ and after the account has been open for 5 years."),
-            ("How much should I contribute?", "I recommend contributing as much as you can afford, up to the $7,000 limit. Even if you can only start with $100-200/month, that's great! The key is consistency and starting early to maximize compound growth."),
-            ("What if my income is too high?", "If your income exceeds the Roth IRA limits ($161,000 for single filers in 2024), you can use a 'backdoor Roth IRA' strategy - contribute to a traditional IRA and then convert it to a Roth. It's a common workaround for high earners."),
+            ("I'm 35 and earn $95,000 per year", "Perfect! At 35 with a $95,000 salary, you're well within the income limits and have 30 years until retirement. You can contribute the full $7,000 annually. At 7% returns, that's potentially over $700,000 by age 65!"),
+            ("I'm generally conservative with investments", "I understand. For conservative investors, I'd recommend a balanced portfolio: 60% stocks (US and international index funds) and 40% bonds. This provides growth potential while managing risk. As you get closer to retirement, we can shift even more conservative."),
+            ("That sounds good. I'll start with $500/month", "Excellent choice! $500/month equals $6,000 per year - that's 86% of the maximum. This disciplined approach will serve you well. Let's set up automatic transfers so you never miss a contribution. Would you like help choosing funds?"),
         ]
     },
     
-    "🔄 Scenario 2: Returning Client with Context": {
-        "description": "Client returns after first session. Memory system loads previous context automatically.",
-        "user_id": "demo_user_1",
-        "session_id": "session_second_meeting",
+    "� Financial Advisor - Session 2": {
+        "description": "💼 Client returns. Watch memory system recall age (35), income ($95k), risk tolerance (conservative), and $500/month commitment!",
+        "user_id": "client_sarah",
+        "session_id": "financial_session_2",
+        "agent_type": "Financial Advisor",
         "conversation": [
-            ("Hi, I'm back! I want to follow up on our Roth IRA discussion.", "Welcome back! Last time we discussed Roth IRA basics - the $7,000 contribution limit, tax-free growth, and withdrawal rules. You were interested in starting contributions. Have you had a chance to think about how much you'd like to contribute?"),
-            ("Yes, I think I can do $500 per month. Is that good?", "That's excellent! $500/month equals $6,000/year, which is 86% of the maximum $7,000 limit. Over 30 years at a conservative 7% return, that could grow to over $600,000 - all tax-free! When would you like to start?"),
-            ("I'll start next month. Should I invest in stocks or bonds?", "Great question! For a Roth IRA with a long time horizon, I typically recommend a diversified approach: perhaps 80% stocks (mix of US and international) and 20% bonds for stability. Many people use low-cost index funds or target-date funds. What's your risk tolerance?"),
-            ("I'm comfortable with moderate risk.", "Perfect! For moderate risk, I'd suggest a balanced portfolio: 70% stocks, 30% bonds. Consider a three-fund portfolio: US total market index (50%), international stocks (20%), and bond index (30%). This gives you global diversification with manageable risk."),
+            ("Hi, I'm back! I set up the automatic $500/month transfers", "Wonderful Sarah! That's great news. I remember you're 35 and planning to contribute $500/month to your Roth IRA with a conservative risk profile. How are you feeling about your investment strategy?"),
+            ("Actually, I got a raise! Now making $110k. Should I increase contributions?", "Congratulations on the raise! With $110k income, you're still well within Roth limits. Since you're already contributing $6,000/year ($500/month), you could increase to $583/month to hit the full $7,000 maximum. Even an extra $83/month compounds significantly over 30 years!"),
+            ("Okay, I'll bump it to $600/month. Also, my company offers a 401k match", "That's smart! Always capture free money - max out your employer 401k match first, then your Roth IRA. What's the match percentage?"),
+            ("They match 50% up to 6% of salary", "Perfect! On $110k, contributing 6% ($6,600/year) gets you a $3,300 match. Combined with your $7,200 Roth IRA ($600/month), you're saving $17,100/year for retirement. That's excellent for someone at 35!"),
         ]
     },
     
-    "🔍 Scenario 3: Memory Retrieval Test": {
-        "description": "Client asks about previous discussions - demonstrates memory retrieval across sessions.",
-        "user_id": "demo_user_1",
-        "session_id": "session_third_meeting",
+    "�️ Shopping Assistant - Session 1": {
+        "description": "🎽 Customer browses running shoes. System learns preferences: Nike, blue colors, $100-120 budget, size 10.",
+        "user_id": "customer_mike",
+        "session_id": "shopping_session_1",
+        "agent_type": "Shopping Assistant",
         "conversation": [
-            ("What was the contribution amount we agreed on?", "Based on our previous discussion, you decided to contribute $500 per month to your Roth IRA, which totals $6,000 per year - nearly the maximum limit of $7,000. You were planning to start next month."),
-            ("And what was my risk profile again?", "You indicated you're comfortable with moderate risk. We discussed a balanced portfolio allocation: 70% stocks (50% US total market, 20% international) and 30% bonds. This provides good growth potential while managing volatility."),
-            ("Did we talk about backdoor Roth conversions?", "Yes! We mentioned that if your income exceeds $161,000 (single filer limit), you can use a backdoor Roth IRA strategy - contribute to a traditional IRA first, then convert it to a Roth. This is a legal workaround for high earners."),
+            ("I'm looking for running shoes", "Great! I'd love to help you find the perfect pair. What's your budget range, and do you have any brand preferences?"),
+            ("I usually like Nike, and budget around $100-120", "Excellent! Nike makes great running shoes in that range. What's your shoe size, and are there any specific colors you prefer?"),
+            ("Size 10, and I really like blue", "Perfect! I have several Nike running shoes in size 10 with blue colorways. Are you looking for road running, trail running, or general training?"),
+            ("Mostly road running, maybe 20 miles per week", "For 20 miles/week road running, I'd recommend the Nike Pegasus 40 in blue ($120) - great cushioning and durability. Or the Nike Revolution 7 in royal blue ($90) if you want to save some money. Both are excellent for your needs."),
+            ("The Pegasus sounds good! Do you have it in stock?", "Yes! The Nike Pegasus 40 in blue, size 10 is in stock. It has React foam cushioning, breathable mesh upper, and typically lasts 400-500 miles. Would you like to add it to your cart?"),
         ]
     },
     
-    "📈 Scenario 4: Extended Session (10+ turns)": {
-        "description": "Long conversation demonstrating automatic buffer pruning and summarization.",
-        "user_id": "demo_user_2",
+    "🛍️ Shopping Assistant - Session 2": {
+        "description": "🎽 Customer returns. Agent remembers: Nike preference, blue color, $100-120 budget, size 10, bought Pegasus!",
+        "user_id": "customer_mike",
+        "session_id": "shopping_session_2",
+        "agent_type": "Shopping Assistant",
+        "conversation": [
+            ("Hi! I loved the Pegasus shoes. Looking for running shorts now", "Welcome back Mike! So glad you're enjoying the Nike Pegasus 40 in blue! For running shorts, I'd recommend staying with Nike since you love the brand. What length do you prefer - 5-inch, 7-inch, or 9-inch?"),
+            ("Probably 7-inch, and blue would be great to match the shoes", "Perfect! I have the Nike Dri-FIT Stride 7-inch shorts in blue for $50. They have a built-in brief, zippered pocket, and moisture-wicking fabric. They'd match your Pegasus perfectly!"),
+            ("That's in my budget range. What about a running shirt?", "For shirts, the Nike Dri-FIT Miler running tee in blue ($35) would complete your set. It's lightweight, breathable, and has reflective details for visibility. Total would be $85 for shorts and shirt."),
+            ("Add both to my cart. You really remember my preferences!", "Absolutely! I remember you love Nike, prefer blue colors, and have a thoughtful budget around $100-120. You're building a great running kit! Your total with the Pegasus ($120) + shorts ($50) + shirt ($35) = $205. Anything else you need?"),
+        ]
+    },
+    
+    "🎓 Learning Assistant - Session 1": {
+        "description": "� Student struggles with algebra. System learns: visual learner, loves basketball, struggles with word problems.",
+        "user_id": "student_alex",
+        "session_id": "learning_session_1",
+        "agent_type": "Math Tutor",
+        "conversation": [
+            ("I don't understand how to solve 2x + 5 = 13", "No problem! Let's solve this step by step. We want to get x by itself. First, what do we need to do to both sides to remove the 5?"),
+            ("Subtract 5?", "Exactly! So 2x + 5 - 5 = 13 - 5, which gives us 2x = 8. Now what do we do to get x alone?"),
+            ("Divide both sides by 2?", "Perfect! 2x ÷ 2 = 8 ÷ 2, so x = 4. Let's check: 2(4) + 5 = 8 + 5 = 13 ✓. You got it! Do you find it easier when we go step by step like this?"),
+            ("Yes! I'm more of a visual learner. Word problems are the hardest for me", "That's really helpful to know! I'll use more visual examples and diagrams. For word problems, let's start with simple ones and build up. What topics interest you? Sports, gaming, music?"),
+            ("I love basketball! Play point guard on my school team", "Awesome! Let's use basketball examples. If you score 2 points per free throw and make 5 free throws, plus get 13 points from other shots, how many total points did you score? Can you write that as an equation?"),
+            ("Um... 2x + 13 = total points? Where x is free throws?", "Almost! Since you made 5 free throws (not x), it would be 2(5) + 13 = total. But great thinking! You're starting to translate words into math. That's the key to word problems. With more basketball examples, you'll get really good at this!"),
+        ]
+    },
+    
+    "🎓 Learning Assistant - Session 2": {
+        "description": "📚 Agent remembers: visual learner, basketball fan, struggles with word problems. Uses basketball context!",
+        "user_id": "student_alex",
+        "session_id": "learning_session_2",
+        "agent_type": "Math Tutor",
+        "conversation": [
+            ("I have another algebra problem I'm stuck on", "Hey Alex! Let's tackle it together. I'll use basketball examples since that works well for you. What's the problem?"),
+            ("If x represents three-pointers (3 points) and y represents free throws (1 point), and you scored 21 points with 3 three-pointers, how many free throws?", "Great basketball problem! I remember you're a visual learner, so let's break it down. You made 3 three-pointers. How many points is that?"),
+            ("3 times 3 equals 9 points", "Perfect! So you have 9 points from three-pointers, and your total is 21 points. How many points came from free throws?"),
+            ("21 minus 9 equals 12 points", "Exactly! And since each free throw is 1 point, you made 12 free throws. See how you translated the word problem into math: 3(3) + y = 21, then solved for y = 12. You're getting really good at this!"),
+            ("That actually made sense! Can we do more basketball problems?", "Absolutely! I'm so proud of your progress. Remember when word problems were the hardest for you? Now you're crushing them with basketball context. Let's do a few more to build your confidence!"),
+        ]
+    },
+    
+    "🏥 Medical Assistant - Session 1 (Critical!)": {
+        "description": "⚕️ Patient reports penicillin allergy. System stores critical safety information. Watch for session 2!",
+        "user_id": "patient_emma",
+        "session_id": "medical_session_1",
+        "agent_type": "Medical Assistant",
+        "conversation": [
+            ("I'm here for a checkup", "Welcome! I'm here to help. Let me start by getting some basic information. Do you have any known allergies, especially to medications?"),
+            ("Yes, I'm allergic to penicillin. I got a rash last time I took it", "Thank you for letting me know - that's very important! I'm noting: PENICILLIN ALLERGY with rash reaction. This will be flagged in your record. Do you have any other medication allergies?"),
+            ("No, just penicillin", "Got it. What brings you in today?"),
+            ("I have high blood pressure. Doctor wants to start medication", "I see. Let me check what medications might work for you. Based on your blood pressure readings and no other allergies besides penicillin, Lisinopril 10mg daily is a common first-line treatment. It's an ACE inhibitor - not related to penicillin at all. Would you like me to send this prescription to your pharmacy?"),
+            ("Yes please, thank you!", "Perfect! Prescription sent for Lisinopril 10mg daily. Remember: NEVER take penicillin or penicillin-related antibiotics (like Amoxicillin, Ampicillin) due to your allergy. Always mention this to any doctor or pharmacist. Take care!"),
+        ]
+    },
+    
+    "🏥 Medical Assistant - Session 2 (LIFESAVING!)": {
+        "description": "⚕️ Patient requests Amoxicillin. Agent searches memory, finds penicillin allergy, PREVENTS DANGEROUS PRESCRIPTION! 🚨",
+        "user_id": "patient_emma",
+        "session_id": "medical_session_2",
+        "agent_type": "Medical Assistant",
+        "conversation": [
+            ("Hi! I have a sinus infection and need antibiotics", "I'm sorry you're not feeling well! Let me help you. Before I recommend anything, let me search your medical history for any important information..."),
+            ("Can I just get Amoxicillin? My friend said it works great", "⚠️ WAIT! I just checked your records - you have a documented PENICILLIN ALLERGY with rash reaction from your previous visit. Amoxicillin IS a penicillin-based antibiotic! Taking it could cause a serious allergic reaction, possibly worse than before. This is exactly why we track your allergy!"),
+            ("Oh my god, I completely forgot about that allergy!", "I'm so glad I caught this! This is why your medical history is so important. For your sinus infection, I can prescribe Azithromycin (Z-Pack) instead - it's a completely different class of antibiotic, very effective for sinus infections, and safe with your penicillin allergy."),
+            ("Thank you for catching that! Yes, Azithromycin sounds good", "You're welcome! Sending the prescription now. Please always mention your penicillin allergy to any healthcare provider - it's critical for your safety. And remember: you're also on Lisinopril 10mg for blood pressure. Take the Azithromycin with food. Feel better soon!"),
+        ]
+    },
+    
+    "📈 Extended Conversation (10+ turns)": {
+        "description": "🔄 Long conversation demonstrating automatic buffer pruning, summarization, and memory compression.",
+        "user_id": "demo_user_extended",
         "session_id": "session_extended",
+        "agent_type": "Financial Advisor",
         "conversation": [
             ("I need help planning my retirement. I'm 45 years old.", "Great! At 45, you have about 20 years until typical retirement age. Let's start by understanding your current situation. Do you have any existing retirement accounts?"),
             ("Yes, I have a 401k through work with about $180,000.", "That's a solid foundation! How much are you currently contributing, and does your employer offer matching?"),
@@ -478,6 +553,20 @@ def render_chat():
         st.info("👈 **Select a scenario** from the sidebar to begin the demo")
         return
     
+    # Get agent type for current scenario
+    scenario = SCENARIOS.get(st.session_state.demo_state['current_scenario'], {})
+    agent_type = scenario.get('agent_type', 'AI Assistant')
+    
+    # Agent icon mapping
+    agent_icons = {
+        'Financial Advisor': '💼',
+        'Shopping Assistant': '🛒',
+        'Math Tutor': '📐',
+        'Medical Assistant': '⚕️',
+        'AI Assistant': '🤖'
+    }
+    agent_icon = agent_icons.get(agent_type, '🤖')
+    
     # Chat container
     for msg in st.session_state.demo_state['conversation_history']:
         if msg['role'] == 'user':
@@ -494,7 +583,7 @@ def render_chat():
             st.markdown(f"""
             <div class="chat-assistant">
                 <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
-                    <strong>🤖 AI Financial Advisor</strong>
+                    <strong>{agent_icon} {agent_type}</strong>
                     <span style="color: #666; font-size: 0.85em;">{msg['timestamp']}</span>
                 </div>
                 <div>{msg['content']}</div>

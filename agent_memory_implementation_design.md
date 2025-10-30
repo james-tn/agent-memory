@@ -15,7 +15,7 @@ This document outlines the implementation design for the **Agent Memory Service*
 | Component | Technology | Purpose |
 |-----------|-----------|---------|
 | **Agent Framework** | Microsoft Agent Framework (v1.0.0b251016) | Core agent orchestration |
-| **LLM Provider** | Azure OpenAI (GPT-4) | Chat completion & reasoning |
+| **LLM Provider** | Azure OpenAI (gpt-5-nano) | Chat completion & reasoning |
 | **Embedding Model** | Azure OpenAI (text-embedding-ada-002) | Vector embeddings generation |
 | **Vector Database** | Azure CosmosDB for NoSQL | Memory storage & retrieval |
 | **Authentication** | Azure Service Principal | CosmosDB & OpenAI access |
@@ -35,14 +35,14 @@ This document outlines the implementation design for the **Agent Memory Service*
     ┌────────────▼──────────────┐         ┌──────────────▼─────────────┐
     │   Agent Memory Service    │         │   Azure OpenAI Service     │
     │                           │         │                            │
-    │  ┌────────────────────┐   │         │  • GPT-4 (Main + Reflect) │
-    │  │ Current Memory     │   │         │  • GPT-4o-mini (CFR)      │
+    │  ┌────────────────────┐   │         │  • gpt-5-nano (Main + Reflect) │
+    │  │ Current Memory     │   │         │  • gpt-5-nanoo-mini (CFR)      │
     │  │ Keeper             │   │         │  • Ada-002 (Embeddings)   │
     │  │ (Context Builder)  │   │         └────────────────────────────┘
     │  └────────────────────┘   │
     │  ┌────────────────────┐   │
     │  │ CFR Mini-Agent     │◄──┼─── Tool call from Main Agent
-    │  │ (GPT-4o-mini)      │   │
+    │  │ (gpt-5-nanoo-mini)      │   │
     │  │ Tools:             │   │
     │  │ • search_interact. │   │
     │  │ • search_insights  │   │
@@ -232,7 +232,7 @@ class AgentMemoryService:
         self,
         user_id: str,
         cosmos_client: CosmosClient,
-        chat_client: AzureOpenAI,  # For GPT-4 and GPT-4o-mini
+        chat_client: AzureOpenAI,  # For gpt-5-nano and gpt-5-nanoo-mini
         embedding_client: AzureOpenAI,
         config: MemoryConfig = None
     ):
@@ -644,8 +644,8 @@ class MemoryConfig:
     SUMMARIES_CONTAINER = "session_summaries"
     
     # Azure OpenAI
-    CHAT_DEPLOYMENT = "gpt-4"  # Main agent + reflection
-    MINI_DEPLOYMENT = "gpt-4o-mini"  # CFR agent + metadata generation
+    CHAT_DEPLOYMENT = "gpt-5-nano"  # Main agent + reflection
+    MINI_DEPLOYMENT = "gpt-5-nanoo-mini"  # CFR agent + metadata generation
     EMBEDDING_MODEL = "text-embedding-ada-002"
     EMBEDDING_DIMENSIONS = 1536
     
@@ -932,7 +932,7 @@ Session Init → Load [Long-term insight + Recent summaries]
    ↓
 Accumulate turns in buffer (k turns)
    ↓
-When buffer full → Generate metadata (GPT-4o-mini)
+When buffer full → Generate metadata (gpt-5-nanoo-mini)
    ↓
 Create interaction document → Store in CosmosDB
    ↓
@@ -944,7 +944,7 @@ Repeat until session ends
 ```
 
 ### CFR as Mini-Agent
-- Separate agent instance using GPT-4o-mini
+- Separate agent instance using gpt-5-nanoo-mini
 - Has 3 tools: search_interactions, search_insights, search_session_summaries
 - Main agent calls CFR via tool: `retrieve_user_facts(query)`
 - CFR decides which containers to search and synthesizes results
@@ -960,8 +960,8 @@ Repeat until session ends
    - Mark session insights as processed=true
 
 ### Models Used
-- **GPT-4**: Main agent + reflection synthesis
-- **GPT-4o-mini**: CFR agent + metadata generation (summary, topics, entities)
+- **gpt-5-nano**: Main agent + reflection synthesis
+- **gpt-5-nanoo-mini**: CFR agent + metadata generation (summary, topics, entities)
 - **text-embedding-ada-002**: All embeddings
 
 ---

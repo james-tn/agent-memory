@@ -114,7 +114,7 @@ Traditional AI agents are stateless - they forget everything between sessions. T
 - Azure subscription with:
   - Azure CosmosDB for NoSQL account (with vector search enabled)
   - Azure OpenAI service with:
-    - GPT-4/GPT-4o deployment for chat
+    - gpt-5-nano/gpt-5-nanoo deployment for chat
     - text-embedding-ada-002 for embeddings
 - Azure CLI (for authentication) or service principal credentials
 
@@ -170,7 +170,7 @@ AAD_CLIENT_SECRET=your-client-secret
 # Azure OpenAI
 AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com/
 AZURE_OPENAI_API_KEY=your-api-key
-AZURE_OPENAI_CHAT_DEPLOYMENT=gpt-4
+AZURE_OPENAI_CHAT_DEPLOYMENT=gpt-5-nano
 AZURE_OPENAI_EMB_DEPLOYMENT=text-embedding-ada-002
 
 # Memory Configuration (optional - defaults shown)
@@ -807,7 +807,7 @@ AAD_CLIENT_SECRET=your-client-secret
 # Azure OpenAI
 AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com/
 AZURE_OPENAI_API_KEY=your-api-key
-AZURE_OPENAI_CHAT_DEPLOYMENT=gpt-4
+AZURE_OPENAI_CHAT_DEPLOYMENT=gpt-5-nano
 AZURE_OPENAI_EMB_DEPLOYMENT=text-embedding-ada-002
 
 # Memory Settings
@@ -1077,7 +1077,7 @@ az containerapp create \
 - RUs: 400 RU/s provisioned → **$23/month**
 
 **Azure OpenAI:**
-- Chat (GPT-4): ~200k tokens → **$6/month**
+- Chat (gpt-5-nano): ~200k tokens → **$6/month**
 - Embeddings: ~500k tokens → **$0.10/month**
 
 **Compute (Azure Container Apps):**
@@ -1226,7 +1226,7 @@ Currently, insights accumulate as separate documents. The design includes:
 **Status:** 🔴 Not Implemented
 
 Planned mini-agent for intelligent memory retrieval:
-- **Dedicated GPT-4o-mini agent** with tools:
+- **Dedicated gpt-5-nanoo-mini agent** with tools:
   - `search_interactions`: Semantic search across conversations
   - `search_insights`: Query user insights
   - `search_summaries`: Find relevant session summaries

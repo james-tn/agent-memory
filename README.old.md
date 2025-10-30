@@ -90,7 +90,7 @@ Traditional AI agents are stateless - they forget everything between sessions. T
 - Python 3.12+
 - Azure subscription with:
   - Azure CosmosDB for NoSQL account
-  - Azure OpenAI service with GPT-4 and text-embedding-ada-002
+  - Azure OpenAI service with gpt-5-nano and text-embedding-ada-002
 - Azure CLI (for authentication)
 
 ### Installation
@@ -121,7 +121,7 @@ COSMOS_DB_NAME=cosmosvector
 # Azure OpenAI
 AZURE_OPENAI_ENDPOINT=https://your-openai.openai.azure.com/
 AZURE_OPENAI_API_VERSION=2024-08-01-preview
-AZURE_OPENAI_CHAT_DEPLOYMENT=gpt-4
+AZURE_OPENAI_CHAT_DEPLOYMENT=gpt-5-nano
 AZURE_OPENAI_EMBEDDING_DEPLOYMENT=text-embedding-ada-002
 ```
 
@@ -416,8 +416,8 @@ Expected output:
 
 | Model | Purpose | Deployment |
 |-------|---------|-----------|
-| **GPT-4** | Main agent reasoning | gpt-4 |
-| **GPT-4o-mini** | Metadata generation, fact retrieval | gpt-4o-mini |
+| **gpt-5-nano** | Main agent reasoning | gpt-5-nano |
+| **gpt-5-nanoo-mini** | Metadata generation, fact retrieval | gpt-5-nanoo-mini |
 | **text-embedding-ada-002** | Vector embeddings | text-embedding-ada-002 |
 
 ---
