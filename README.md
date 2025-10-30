@@ -718,6 +718,9 @@ User Insights:
 Instead of passively receiving context, agents can **actively search** their memory when needed using the `search_memory()` tool:
 
 ```python
+from agent_framework import ChatAgent
+from agent_framework.azure import AzureOpenAIChatClient
+
 # Add search_memory as a tool
 agent = ChatAgent(
     client=AzureOpenAIChatClient(...),
