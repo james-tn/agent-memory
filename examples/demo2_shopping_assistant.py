@@ -104,6 +104,7 @@ async def main() -> None:
         user_id=user_id,
         auto_manage_session=False
     )
+
     
     await memory_provider._start_session()
     
