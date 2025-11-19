@@ -19,7 +19,7 @@ from azure.cosmos import ContainerProxy
 
 from agent_framework import ChatAgent, ai_function
 from agent_framework.azure import AzureOpenAIChatClient
-from azure.identity import AzureCliCredential
+from azure.identity import DefaultAzureCredential
 
 from memory.cosmos_utils import CosmosUtils
 from memory.config import MemoryConfig
@@ -118,7 +118,7 @@ class ContextualFactRetrieval:
         
         # Create the Agent Framework agent with the search tools
         self.agent = ChatAgent(
-            chat_client=AzureOpenAIChatClient(credential=AzureCliCredential()),
+            chat_client=AzureOpenAIChatClient(credential=DefaultAzureCredential(),deployment_name=config.CHAT_DEPLOYMENT),
             instructions="""You are a memory retrieval assistant. Your job is to search through past conversations, 
 session summaries, and long-term insights to find relevant information for the user's query.
 

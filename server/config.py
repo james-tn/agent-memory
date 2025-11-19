@@ -31,11 +31,11 @@ class ServerConfig(BaseSettings):
     azure_openai_endpoint: str
 
     azure_openai_api_key: str
-    azure_openai_chat_deployment_name: str  # Main deployment for chat
+    AZURE_OPENAI_CHAT_DEPLOYMENT: str  # Main deployment for chat
     azure_openai_api_version: str 
     
     # Azure Cosmos DB Settings (use existing .env variable names)
-    cosmosdb_endpoint: str
+    COSMOS_ENDPOINT: str
     cosmos_key: Optional[str] = None  # If not provided, will use AAD authentication
     cosmos_db_name: str = "cosmosvector"
     cosmos_interactions_container: str = "interactions"

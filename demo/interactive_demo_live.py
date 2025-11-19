@@ -11,15 +11,31 @@ import os
 from pathlib import Path
 from datetime import datetime
 import json
+from dotenv import load_dotenv
 
-# Add parent directory to path
-sys.path.insert(0, str(Path(__file__).parent.parent))
+# Resolve repo root for imports and env loading
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Load environment variables from root .env and azd environment if present
+dotenv_candidates = [BASE_DIR / '.env']
+azure_env_dir = BASE_DIR / '.azure'
+if azure_env_dir.exists():
+    for child in azure_env_dir.iterdir():
+        env_file = child / '.env'
+        if env_file.exists():
+            dotenv_candidates.append(env_file)
+
+for dotenv_path in dotenv_candidates:
+    if dotenv_path.exists():
+        load_dotenv(dotenv_path, override=False)
+
+# Add parent directory to path for local imports
+sys.path.insert(0, str(BASE_DIR))
 
 from memory.orchestrator import MemoryServiceOrchestrator
 from memory.config import MemoryConfig
 from memory.cosmos_utils import CosmosUtils
 from demo.setup_cosmosdb import get_cosmos_client, get_openai_client
-from azure.cosmos import ContainerProxy
 
 # Page config
 st.set_page_config(
@@ -28,6 +44,22 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+chat_deployment=os.getenv("AZURE_OPENAI_CHAT_DEPLOYMENT")
+embedding_model=os.getenv("AZURE_OPENAI_EMB_DEPLOYMENT")
+mini_deployment=os.getenv("AZURE_OPENAI_MINI_DEPLOYMENT")
+cosmos_db_name=os.getenv("AZURE_COSMOS_DATABASE_NAME")
+interactions_container_name=os.getenv("AZURE_COSMOS_INTERACTIONS_CONTAINER", "interactions")
+insights_container_name=os.getenv("AZURE_COSMOS_INSIGHTS_CONTAINER", "insights")
+summaries_container_name=os.getenv("AZURE_COSMOS_SUMMARIES_CONTAINER", "session_summaries")
+print("chat deployment", chat_deployment)
+print("embedding deployment", embedding_model)
+print("mini deployment ", mini_deployment)
+print("OpenAI URI ", os.getenv("AZURE_OPENAI_ENDPOINT"))
+print("Cosmos DB ", cosmos_db_name)
+print("Interactions container ", interactions_container_name)
+print("Insights container ", insights_container_name)
+print("Summaries container ", summaries_container_name)
 
 # Custom CSS
 st.markdown("""
@@ -308,42 +340,44 @@ SCENARIOS = {
 @st.cache_resource
 def initialize_memory_service(user_id: str, session_id: str):
     """Initialize the memory service (cached to avoid re-initialization)"""
-    try:
-        # Get clients
-        cosmos_client = get_cosmos_client()
-        chat_client = get_openai_client()
-        
-        # Get database and containers
-        db = cosmos_client.get_database_client("cosmosvector")
-        interactions_container = db.get_container_client("interactions")
-        insights_container = db.get_container_client("insights")
-        summaries_container = db.get_container_client("session_summaries")
-        
-        # Create config and cosmos utilities
-        config = MemoryConfig()
-        cosmos_utils = CosmosUtils(
-            embedding_client=chat_client
-        )
-        
-        # Create orchestrator
-        orchestrator = MemoryServiceOrchestrator(
-            user_id=user_id,
-            session_id=session_id,
-            config=config,
-            cosmos_utils=cosmos_utils,
-            interactions_container=interactions_container,
-            summaries_container=summaries_container,
-            insights_container=insights_container,
-            chat_client=chat_client
-        )
-        
-        return orchestrator
-    except Exception as e:
-        print(e)
-        st.error(f"Failed to initialize memory service: {str(e)}")
-        st.exception(e)  # Show full traceback for debugging
-        return None
-
+    # Get clients
+    cosmos_client = get_cosmos_client()
+    chat_client = get_openai_client()
+    
+    # Get database and containers
+    db = cosmos_client.get_database_client(cosmos_db_name)
+    interactions_container = db.get_container_client(interactions_container_name)
+    insights_container = db.get_container_client(insights_container_name)
+    summaries_container = db.get_container_client(summaries_container_name)
+    
+    # Create config and cosmos utilities
+    config = MemoryConfig(
+        chat_deployment=chat_deployment,
+        embedding_model=embedding_model,
+        mini_deployment=mini_deployment,
+        database_name=cosmos_db_name,
+        interactions_container=interactions_container_name,
+        insights_container=insights_container_name,
+        summaries_container=summaries_container_name
+    )
+    cosmos_utils = CosmosUtils(
+        embedding_client=chat_client,
+        embedding_deployment=embedding_model
+    )
+    
+    # Create orchestrator
+    orchestrator = MemoryServiceOrchestrator(
+        user_id=user_id,
+        session_id=session_id,
+        config=config,
+        cosmos_utils=cosmos_utils,
+        interactions_container=interactions_container,
+        summaries_container=summaries_container,
+        insights_container=insights_container,
+        chat_client=chat_client
+    )
+    
+    return orchestrator
 
 # Initialize session state
 if 'demo_state' not in st.session_state:

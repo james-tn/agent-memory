@@ -1,0 +1,41 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/Azure/azure-dev/main/schemas/v1.0/azure.yaml.json
+
+name: agent-memory
+metadata:
+  template: agent-memory@0.0.1-beta
+
+# Infrastructure configuration
+infra:
+  provider: bicep
+  path: infra
+  module: main
+
+services:
+  demo:
+    project: .
+    language: python
+    host: containerapp
+    docker:
+      path: ./Dockerfile
+      context: .
+
+hooks:
+  preprovision:
+    windows:
+      shell: pwsh
+      run: ./infra/scripts/preprovision.ps1
+      continueOnError: false
+    posix:
+      shell: sh
+      run: ./infra/scripts/preprovision.sh
+      continueOnError: false
+  
+  postprovision:
+    windows:
+      shell: pwsh
+      run: ./infra/scripts/setup-cosmos-vectors.ps1
+      continueOnError: false
+    posix:
+      shell: sh
+      run: ./infra/scripts/setup-cosmos-vectors.sh
+      continueOnError: false

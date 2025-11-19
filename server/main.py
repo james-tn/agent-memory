@@ -54,29 +54,33 @@ async def lifespan(app: FastAPI):
         base_url=server_config.azure_openai_endpoint_v1,
         api_key=server_config.azure_openai_api_key,
     )
-    logger.info(f"✓ Azure OpenAI client initialized: {server_config.azure_openai_chat_deployment_name}")
+    logger.info(f"✓ Azure OpenAI client initialized: {server_config.AZURE_OPENAI_CHAT_DEPLOYMENT}")
     
     # Initialize Cosmos DB client (shared)
+    # Try authentication methods in order: Key -> Service Principal -> Managed Identity
     if server_config.cosmos_key:
-        # Use key-based authentication
+        # Option 1: Key-based authentication
         cosmos_client = CosmosClient(
-            server_config.cosmosdb_endpoint,
+            server_config.COSMOS_ENDPOINT,
             server_config.cosmos_key
         )
         logger.info("✓ CosmosDB using key-based authentication")
-    else:
-        # Use AAD authentication
+    elif all([server_config.aad_client_id, server_config.aad_client_secret, server_config.aad_tenant_id]):
+        # Option 2: Service Principal authentication
         from azure.identity import ClientSecretCredential
-        if not all([server_config.aad_client_id, server_config.aad_client_secret, server_config.aad_tenant_id]):
-            raise ValueError("CosmosDB key not provided and AAD credentials incomplete")
-        
         credential = ClientSecretCredential(
             tenant_id=server_config.aad_tenant_id,
             client_id=server_config.aad_client_id,
             client_secret=server_config.aad_client_secret
         )
-        cosmos_client = CosmosClient(server_config.cosmosdb_endpoint, credential=credential)
-        logger.info("✓ CosmosDB using AAD authentication")
+        cosmos_client = CosmosClient(server_config.COSMOS_ENDPOINT, credential=credential)
+        logger.info("✓ CosmosDB using Service Principal authentication")
+    else:
+        # Option 3: Managed Identity / Default Azure Credential
+        from azure.identity import DefaultAzureCredential
+        credential = DefaultAzureCredential(exclude_interactive_browser_credential=True)
+        cosmos_client = CosmosClient(server_config.COSMOS_ENDPOINT, credential=credential)
+        logger.info("✓ CosmosDB using Managed Identity authentication")
     
     database = cosmos_client.get_database_client(server_config.cosmos_db_name)
     

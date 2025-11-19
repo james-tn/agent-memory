@@ -87,7 +87,7 @@ This folder contains comprehensive demos showcasing the multi-tier memory capabi
 
 2. **Environment Variables** (`.env` file):
    ```
-   COSMOSDB_ENDPOINT=https://your-cosmos.documents.azure.com:443/
+   COSMOS_ENDPOINT=https://your-cosmos.documents.azure.com:443/
    COSMOS_DB_NAME=your_database
    AAD_CLIENT_ID=your-client-id
    AAD_CLIENT_SECRET=your-client-secret

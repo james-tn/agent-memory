@@ -3,35 +3,67 @@ CosmosDB Setup Script for Agent Memory Service.
 
 This script creates the database and containers with proper indexing policies
 for vector search and full-text search.
+
+Supports multiple authentication methods:
+1. Cosmos DB Key (COSMOSDB_KEY or COSMOS_KEY)
+2. Service Principal (AAD_CLIENT_ID, AAD_CLIENT_SECRET, AAD_TENANT_ID)
+3. Managed Identity / Default Azure Credential (fallback)
 """
 
 import os
+import logging
 from azure.cosmos import CosmosClient, PartitionKey, exceptions
-from azure.identity import ClientSecretCredential
+from azure.identity import ClientSecretCredential, DefaultAzureCredential
 from openai import AzureOpenAI, OpenAI
 from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
 
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+
+
+def _create_cosmos_credential():
+    """
+    Create appropriate credential for Cosmos DB authentication.
+    Tries in order: Key -> Service Principal -> Managed Identity
+    """
+    # Option 1: Cosmos DB Key
+    key = os.getenv("COSMOSDB_KEY") or os.getenv("COSMOS_KEY")
+    if key:
+        logging.info("CosmosDB: authenticating with KEY")
+        return key
+    
+    # Option 2: Service Principal (Client Secret)
+    client_id = os.getenv("AAD_CLIENT_ID")
+    client_secret = os.getenv("AAD_CLIENT_SECRET")
+    tenant_id = os.getenv("AAD_TENANT_ID")
+    
+    if client_id and client_secret and tenant_id:
+        logging.info("CosmosDB: authenticating with Service Principal (client secret)")
+        return ClientSecretCredential(
+            tenant_id=tenant_id,
+            client_id=client_id,
+            client_secret=client_secret
+        )
+    
+    # Option 3: Managed Identity / Default Azure Credential
+    logging.info("CosmosDB: authenticating with DefaultAzureCredential (Managed Identity)")
+    return DefaultAzureCredential(exclude_interactive_browser_credential=True)
+
 
 def get_cosmos_client() -> CosmosClient:
-    """Create and return CosmosDB client using service principal authentication."""
-    cosmos_uri = os.getenv("COSMOSDB_ENDPOINT")
-    aad_client_id = os.getenv("AAD_CLIENT_ID")
-    aad_client_secret = os.getenv("AAD_CLIENT_SECRET")
-    aad_tenant_id = os.getenv("AAD_TENANT_ID")
+    """Create and return CosmosDB client with appropriate authentication."""
+    cosmos_endpoint = os.getenv("COSMOS_ENDPOINT")
     
-    if not all([cosmos_uri, aad_client_id, aad_client_secret, aad_tenant_id]):
-        raise ValueError("Missing required environment variables for CosmosDB authentication")
+    if not cosmos_endpoint:
+        raise ValueError("Missing required environment variable: COSMOS_ENDPOINT")
     
-    credential = ClientSecretCredential(
-        tenant_id=aad_tenant_id,
-        client_id=aad_client_id,
-        client_secret=aad_client_secret
-    )
+    logging.info(f"CosmosDB endpoint: {cosmos_endpoint}")
     
-    return CosmosClient(cosmos_uri, credential=credential)
+    credential = _create_cosmos_credential()
+    return CosmosClient(cosmos_endpoint, credential=credential)
 
 
 def get_openai_client() -> OpenAI:

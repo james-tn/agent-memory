@@ -96,11 +96,11 @@ class MemoryConfig:
     
     @property
     def CHAT_DEPLOYMENT(self) -> Optional[str]:
-        return self.chat_deployment or os.getenv("AZURE_OPENAI_CHAT_DEPLOYMENT_NAME", "gpt-5-chat")
+        return self.chat_deployment 
     
     @property
     def MINI_DEPLOYMENT(self) -> Optional[str]:
-        return self.mini_deployment or os.getenv("AZURE_OPENAI_MINI_DEPLOYMENT_NAME", "gpt-5-mini")
+        return self.mini_deployment 
     
     @property
     def EMBEDDING_MODEL(self) -> str:

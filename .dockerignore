@@ -1,0 +1,59 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+
+# Documentation
+docs/_build/
+*.md
+!README.md
+
+# Infrastructure
+infra/
+.azure/
+
+# Local development
+.env
+.env.local
+*.log
+*.sqlite
+
+# Tests
+tests/
+test_*.py
+*_test.py
+
+# CI/CD
+.github/
+azure-pipelines.yml
+
+# Notebooks
+*.ipynb
+.ipynb_checkpoints/

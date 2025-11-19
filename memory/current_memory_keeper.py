@@ -250,46 +250,43 @@ class CurrentMemoryKeeper:
         - Embedding generation
         - CosmosDB storage
         """
-        try:
-            # Flatten turns into conversation text
-            conversation_text = "\n".join([
-                f"{turn.role}: {turn.content}" for turn in turns
-            ])
-            
-            # Generate metadata using gpt-5-nanoo-mini
-            metadata = await self._generate_metadata(conversation_text)
-            
-            # Generate embeddings
-            content_embedding = self.cosmos_utils.get_embedding(conversation_text)
-            summary_embedding = self.cosmos_utils.get_embedding(metadata["summary"])
-            
-            # Create interaction document
-            interaction_doc = {
-                "id": str(uuid.uuid4()),
-                "user_id": self.user_id,
-                "session_id": self.session_id,
-                "timestamp": datetime.utcnow().isoformat(),
-                "content": conversation_text,
-                "content_vector": content_embedding,
-                "summary": metadata["summary"],
-                "summary_vector": summary_embedding,
-                "metadata": {
-                    "mentioned_topics": metadata["mentioned_topics"],
-                    "entities": metadata["entities"]
-                }
+        # Flatten turns into conversation text
+        conversation_text = "\n".join([
+            f"{turn.role}: {turn.content}" for turn in turns
+        ])
+        
+        # Generate metadata using gpt-5-nanoo-mini
+        metadata = await self._generate_metadata(conversation_text)
+        
+        # Generate embeddings
+        content_embedding = self.cosmos_utils.get_embedding(conversation_text)
+        summary_embedding = self.cosmos_utils.get_embedding(metadata["summary"])
+        
+        # Create interaction document
+        interaction_doc = {
+            "id": str(uuid.uuid4()),
+            "user_id": self.user_id,
+            "session_id": self.session_id,
+            "timestamp": datetime.utcnow().isoformat(),
+            "content": conversation_text,
+            "content_vector": content_embedding,
+            "summary": metadata["summary"],
+            "summary_vector": summary_embedding,
+            "metadata": {
+                "mentioned_topics": metadata["mentioned_topics"],
+                "entities": metadata["entities"]
             }
+        }
+        
+        # Store in CosmosDB
+        result = self.cosmos_utils.upsert_document(
+            container=self.interactions_container,
+            document=interaction_doc
+        )
+        
+        print(f"  ✓ [Background] Interaction document stored: {result['id']}")
+        print(f"    Topics: {metadata['mentioned_topics']}")
             
-            # Store in CosmosDB
-            result = self.cosmos_utils.upsert_document(
-                container=self.interactions_container,
-                document=interaction_doc
-            )
-            
-            print(f"  ✓ [Background] Interaction document stored: {result['id']}")
-            print(f"    Topics: {metadata['mentioned_topics']}")
-            
-        except Exception as e:
-            print(f"  ✗ [Background] Error processing interaction: {e}")
     
     async def final_prune(self) -> Optional[Dict]:
         """
