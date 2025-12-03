@@ -23,8 +23,8 @@ if __name__ == "__main__":
     print("=" * 60)
     print(f"Host: {config.host}:{config.port}")
     print(f"Session Pool: max={config.max_sessions}, ttl={config.session_ttl_minutes}min")
-    print(f"CosmosDB: {config.cosmos_db_name}")
-    print(f"OpenAI: {config.AZURE_OPENAI_CHAT_DEPLOYMENT}")
+    print(f"cosmos_db_name: {config.cosmos_db_name}")
+    print(f"azure_openai_chat_deployment: {config.azure_openai_chat_deployment}")
     print("=" * 60)
     
     uvicorn.run(

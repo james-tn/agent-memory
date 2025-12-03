@@ -31,18 +31,27 @@ class CosmosMemoryProvider(ContextProvider):
     This provider communicates with a remote memory service that manages CosmosDB
     interactions, providing high-performance session pooling and shared resources.
     
-    Usage:
-        # Create provider
+    Important: Session Management
+    ------------------------------
+    Due to Agent Framework lifecycle behavior, automatic session management via
+    context managers (__aenter__/__aexit__) is NOT reliable. The framework exits
+    the provider's context immediately after invoking(), which would end the session
+    before invoked() can store conversation turns.
+    
+    Recommended Usage (Manual Session Management):
+        # Create provider with auto_manage_session=False
         memory_provider = CosmosMemoryProvider(
             service_url="http://localhost:8000",
             user_id="user123",
-            session_id="optional-session-id",  # Auto-generated if not provided
-            auto_manage_session=True  # Automatically start/end sessions
+            auto_manage_session=False  # Manual control
         )
+        
+        # Explicitly start the session
+        await memory_provider._start_session()
         
         # Use with Agent Framework
         agent = ChatAgent(
-            model="gpt-5-nano",
+            chat_client=...,
             context_providers=[memory_provider]
         )
         
@@ -50,9 +59,29 @@ class CosmosMemoryProvider(ContextProvider):
         response1 = await agent.run("Tell me about 401k plans")
         response2 = await agent.run("What are the contribution limits?")
         
-        # Session automatically ended when auto_manage_session=True
-        # or call explicitly:
+        # Explicitly end session when done (triggers reflection)
         await memory_provider.end_session()
+        await memory_provider.close()
+    
+    Alternative (Automatic Start, Manual End):
+        # Sessions auto-start on first invoking(), but you must end manually
+        memory_provider = CosmosMemoryProvider(
+            service_url="http://localhost:8000",
+            user_id="user123",
+            auto_manage_session=True  # Auto-starts session
+        )
+        
+        agent = ChatAgent(
+            chat_client=...,
+            context_providers=[memory_provider]
+        )
+        
+        # Session starts automatically on first run
+        response = await agent.run("Hello")
+        
+        # You must still end the session explicitly
+        await memory_provider.end_session()
+        await memory_provider.close()
     """
     
     def __init__(
@@ -70,8 +99,9 @@ class CosmosMemoryProvider(ContextProvider):
             service_url: Base URL of memory service (e.g., "http://localhost:8000")
             user_id: User identifier
             session_id: Session identifier (auto-generated if not provided)
-            auto_manage_session: If True, automatically start session on first call
-                                and end on explicit call to end_session()
+            auto_manage_session: If True, automatically start session on first invoking().
+                                You must still call end_session() explicitly.
+                                If False, you must call _start_session() manually.
             timeout: HTTP request timeout in seconds
         """
         self.service_url = service_url.rstrip("/")
@@ -106,16 +136,22 @@ class CosmosMemoryProvider(ContextProvider):
         return self._client
     
     async def __aenter__(self):
-        """Context manager entry."""
+        """Context manager entry.
+        
+        Note: The Agent Framework exits the context manager immediately after
+        invoking(), so we cannot use __aexit__ for session management.
+        Session lifecycle is now managed via invoking/invoked/end_session.
+        """
         return self
     
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        """Context manager exit - end session if auto-managed and close HTTP client."""
-        if self.auto_manage_session and self.session_started and not self.session_ended:
-            try:
-                await self.end_session()
-            except Exception as e:
-                logger.warning(f"Failed to end session during context exit: {e}")
+        """Context manager exit - only close HTTP client.
+        
+        Note: Session management is NOT handled here because the framework
+        exits the context before invoked() is called. Sessions must be
+        explicitly ended via end_session().
+        """
+        # Do NOT end session here - it would prevent invoked() from storing turns
         if self._client is not None and not self._client.is_closed:
             await self._client.aclose()
     
@@ -222,12 +258,15 @@ class CosmosMemoryProvider(ContextProvider):
                 f"user={bool(self.last_user_message)}, agent={bool(agent_message)}"
             )
     
-    async def thread_created(self, thread_id: str) -> None:
+    async def thread_created(self, thread_id: str | None) -> None:
         """
         Called when a new thread is created.
         
         For memory service, we don't need to do anything special here
         since our sessions are independent of agent threads.
+        
+        Args:
+            thread_id: The thread ID (may be None for local threads)
         """
         logger.debug(f"Thread created: {thread_id} (session: {self.session_id})")
     
@@ -337,11 +376,18 @@ class CosmosMemoryProvider(ContextProvider):
         """
         End the current session and trigger reflection.
         
-        This should be called when the conversation is complete.
-        If auto_manage_session=True, this is the user's responsibility.
+        This MUST be called explicitly when the conversation is complete,
+        regardless of the auto_manage_session setting. The framework's context
+        manager lifecycle does not align with session boundaries.
+        
+        Best practice: Call this after your final agent.run() in a conversation.
         """
         if self.session_ended:
             logger.warning(f"Session already ended: {self.session_id}")
+            return
+        
+        if not self.session_started:
+            logger.warning(f"Session never started: {self.session_id}")
             return
         
         # Give a small delay to ensure any pending invoked() calls complete

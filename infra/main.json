@@ -6,7 +6,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.38.33.27573",
-      "templateHash": "10283595748025352041"
+      "templateHash": "7377184235909912722"
     }
   },
   "parameters": {
@@ -155,7 +155,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.38.33.27573",
-              "templateHash": "8275328698677002047"
+              "templateHash": "16210236790858724496"
             }
           },
           "parameters": {
@@ -213,25 +213,25 @@
                 "description": "Embedding model version"
               }
             },
-            "miniDeploymentName": {
+            "processingDeploymentName": {
               "type": "string",
               "defaultValue": "gpt-5-mini",
               "metadata": {
-                "description": "Mini model deployment name"
+                "description": "Processing model deployment name (for fast operations like metadata/summaries)"
               }
             },
-            "miniModelName": {
+            "processingModelName": {
               "type": "string",
               "defaultValue": "gpt-5-mini",
               "metadata": {
-                "description": "Mini model name"
+                "description": "Processing model name"
               }
             },
-            "miniModelVersion": {
+            "processingModelVersion": {
               "type": "string",
               "defaultValue": "2025-08-07",
               "metadata": {
-                "description": "Mini model version"
+                "description": "Processing model version"
               }
             }
           },
@@ -293,10 +293,10 @@
                 "openAI"
               ]
             },
-            "miniDeployment": {
+            "processingDeployment": {
               "type": "Microsoft.CognitiveServices/accounts/deployments",
               "apiVersion": "2023-05-01",
-              "name": "[format('{0}/{1}', variables('openAIName'), parameters('miniDeploymentName'))]",
+              "name": "[format('{0}/{1}', variables('openAIName'), parameters('processingDeploymentName'))]",
               "sku": {
                 "name": "GlobalStandard",
                 "capacity": 30
@@ -304,8 +304,8 @@
               "properties": {
                 "model": {
                   "format": "OpenAI",
-                  "name": "[parameters('miniModelName')]",
-                  "version": "[parameters('miniModelVersion')]"
+                  "name": "[parameters('processingModelName')]",
+                  "version": "[parameters('processingModelVersion')]"
                 }
               },
               "dependsOn": [
@@ -335,9 +335,9 @@
               "type": "string",
               "value": "[parameters('embeddingDeploymentName')]"
             },
-            "miniDeploymentName": {
+            "processingDeploymentName": {
               "type": "string",
-              "value": "[parameters('miniDeploymentName')]"
+              "value": "[parameters('processingDeploymentName')]"
             }
           }
         }
@@ -1109,6 +1109,95 @@
         "rg"
       ]
     },
+    "cosmosDataRole": {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "cosmos-data-role-definition",
+      "resourceGroup": "[format('rg-{0}', parameters('environmentName'))]",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "cosmosDbAccountName": {
+            "value": "[reference('cosmosdb').outputs.accountName.value]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.38.33.27573",
+              "templateHash": "3284137413485173155"
+            }
+          },
+          "parameters": {
+            "cosmosDbAccountName": {
+              "type": "string"
+            },
+            "roleName": {
+              "type": "string",
+              "defaultValue": "AgentMemory Native Data Owner",
+              "metadata": {
+                "description": "Display name for the custom data plane role"
+              }
+            },
+            "roleIdSalt": {
+              "type": "string",
+              "defaultValue": "native-data-owner-role",
+              "metadata": {
+                "description": "Salt used to derive a deterministic GUID for the role definition"
+              }
+            },
+            "dataPlaneActions": {
+              "type": "array",
+              "defaultValue": [
+                "Microsoft.DocumentDB/databaseAccounts/readMetadata",
+                "Microsoft.DocumentDB/databaseAccounts/sqlDatabases/*",
+                "Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers/*",
+                "Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers/items/*"
+              ],
+              "metadata": {
+                "description": "Data plane actions granted to the custom role"
+              }
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.DocumentDB/databaseAccounts/sqlRoleDefinitions",
+              "apiVersion": "2024-05-15",
+              "name": "[format('{0}/{1}', parameters('cosmosDbAccountName'), guid(parameters('cosmosDbAccountName'), parameters('roleIdSalt')))]",
+              "properties": {
+                "roleName": "[parameters('roleName')]",
+                "type": "CustomRole",
+                "assignableScopes": [
+                  "[resourceId('Microsoft.DocumentDB/databaseAccounts', parameters('cosmosDbAccountName'))]"
+                ],
+                "permissions": [
+                  {
+                    "dataActions": "[parameters('dataPlaneActions')]",
+                    "notDataActions": []
+                  }
+                ]
+              }
+            }
+          ],
+          "outputs": {
+            "roleDefinitionId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.DocumentDB/databaseAccounts/sqlRoleDefinitions', parameters('cosmosDbAccountName'), guid(parameters('cosmosDbAccountName'), parameters('roleIdSalt')))]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "cosmosdb",
+        "rg"
+      ]
+    },
     "containerAppsEnv": {
       "type": "Microsoft.Resources/deployments",
       "apiVersion": "2025-04-01",
@@ -1318,6 +1407,9 @@
           "principalId": {
             "value": "[reference('appIdentity').outputs.principalId.value]"
           },
+          "dataOwnerRoleDefinitionId": {
+            "value": "[reference('cosmosDataRole').outputs.roleDefinitionId.value]"
+          },
           "roleAssignmentSalt": {
             "value": "demo"
           }
@@ -1329,7 +1421,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.38.33.27573",
-              "templateHash": "15997275605121829069"
+              "templateHash": "4316746393439952812"
             }
           },
           "parameters": {
@@ -1338,6 +1430,12 @@
             },
             "principalId": {
               "type": "string"
+            },
+            "dataOwnerRoleDefinitionId": {
+              "type": "string",
+              "metadata": {
+                "description": "Resource ID of the custom Cosmos DB data plane role that grants sqlDatabase management actions"
+              }
             },
             "roleAssignmentSalt": {
               "type": "string",
@@ -1348,16 +1446,26 @@
           },
           "variables": {
             "dataContributorRoleId": "00000000-0000-0000-0000-000000000002",
-            "roleDefinitionId": "[resourceId('Microsoft.DocumentDB/databaseAccounts/sqlRoleDefinitions', parameters('cosmosDbAccountName'), variables('dataContributorRoleId'))]",
-            "cosmosContributorRoleId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '5bd9cd88-fe45-4216-938b-f97437e15450')]"
+            "cosmosContributorRoleId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '5bd9cd88-fe45-4216-938b-f97437e15450')]",
+            "cosmosOperatorRoleId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '230815da-be43-4aae-9cb4-875f7bd000aa')]"
           },
           "resources": [
             {
               "type": "Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments",
               "apiVersion": "2024-05-15",
+              "name": "[format('{0}/{1}', parameters('cosmosDbAccountName'), guid(parameters('principalId'), parameters('cosmosDbAccountName'), 'custom-data-owner', parameters('roleAssignmentSalt')))]",
+              "properties": {
+                "roleDefinitionId": "[parameters('dataOwnerRoleDefinitionId')]",
+                "principalId": "[parameters('principalId')]",
+                "scope": "[resourceId('Microsoft.DocumentDB/databaseAccounts', parameters('cosmosDbAccountName'))]"
+              }
+            },
+            {
+              "type": "Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments",
+              "apiVersion": "2024-05-15",
               "name": "[format('{0}/{1}', parameters('cosmosDbAccountName'), guid(parameters('principalId'), parameters('cosmosDbAccountName'), variables('dataContributorRoleId'), parameters('roleAssignmentSalt')))]",
               "properties": {
-                "roleDefinitionId": "[variables('roleDefinitionId')]",
+                "roleDefinitionId": "[resourceId('Microsoft.DocumentDB/databaseAccounts/sqlRoleDefinitions', parameters('cosmosDbAccountName'), variables('dataContributorRoleId'))]",
                 "principalId": "[parameters('principalId')]",
                 "scope": "[resourceId('Microsoft.DocumentDB/databaseAccounts', parameters('cosmosDbAccountName'))]"
               }
@@ -1371,28 +1479,47 @@
                 "roleDefinitionId": "[variables('cosmosContributorRoleId')]",
                 "principalId": "[parameters('principalId')]"
               }
+            },
+            {
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "scope": "[format('Microsoft.DocumentDB/databaseAccounts/{0}', parameters('cosmosDbAccountName'))]",
+              "name": "[guid(parameters('principalId'), parameters('cosmosDbAccountName'), 'operator', parameters('roleAssignmentSalt'))]",
+              "properties": {
+                "roleDefinitionId": "[variables('cosmosOperatorRoleId')]",
+                "principalId": "[parameters('principalId')]"
+              }
             }
           ],
           "outputs": {
-            "roleAssignmentId": {
+            "dataOwnerRoleAssignmentId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments', parameters('cosmosDbAccountName'), guid(parameters('principalId'), parameters('cosmosDbAccountName'), 'custom-data-owner', parameters('roleAssignmentSalt')))]"
+            },
+            "dataContributorRoleAssignmentId": {
               "type": "string",
               "value": "[resourceId('Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments', parameters('cosmosDbAccountName'), guid(parameters('principalId'), parameters('cosmosDbAccountName'), variables('dataContributorRoleId'), parameters('roleAssignmentSalt')))]"
             },
-            "controlPlaneRoleId": {
+            "controlPlaneContributorRoleId": {
               "type": "string",
               "value": "[extensionResourceId(resourceId('Microsoft.DocumentDB/databaseAccounts', parameters('cosmosDbAccountName')), 'Microsoft.Authorization/roleAssignments', guid(parameters('principalId'), parameters('cosmosDbAccountName'), 'contributor', parameters('roleAssignmentSalt')))]"
+            },
+            "controlPlaneOperatorRoleId": {
+              "type": "string",
+              "value": "[extensionResourceId(resourceId('Microsoft.DocumentDB/databaseAccounts', parameters('cosmosDbAccountName')), 'Microsoft.Authorization/roleAssignments', guid(parameters('principalId'), parameters('cosmosDbAccountName'), 'operator', parameters('roleAssignmentSalt')))]"
             }
           }
         }
       },
       "dependsOn": [
         "appIdentity",
+        "cosmosDataRole",
         "cosmosdb",
         "rg"
       ]
     },
     "devCosmosRoles": {
-      "condition": "[and(variables('secureCosmos'), not(empty(parameters('localDeveloperObjectId'))))]",
+      "condition": "[not(empty(parameters('localDeveloperObjectId')))]",
       "type": "Microsoft.Resources/deployments",
       "apiVersion": "2025-04-01",
       "name": "developer-cosmos-roles",
@@ -1409,6 +1536,9 @@
           "principalId": {
             "value": "[parameters('localDeveloperObjectId')]"
           },
+          "dataOwnerRoleDefinitionId": {
+            "value": "[reference('cosmosDataRole').outputs.roleDefinitionId.value]"
+          },
           "roleAssignmentSalt": {
             "value": "localdev"
           }
@@ -1420,7 +1550,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.38.33.27573",
-              "templateHash": "15997275605121829069"
+              "templateHash": "4316746393439952812"
             }
           },
           "parameters": {
@@ -1429,6 +1559,12 @@
             },
             "principalId": {
               "type": "string"
+            },
+            "dataOwnerRoleDefinitionId": {
+              "type": "string",
+              "metadata": {
+                "description": "Resource ID of the custom Cosmos DB data plane role that grants sqlDatabase management actions"
+              }
             },
             "roleAssignmentSalt": {
               "type": "string",
@@ -1439,16 +1575,26 @@
           },
           "variables": {
             "dataContributorRoleId": "00000000-0000-0000-0000-000000000002",
-            "roleDefinitionId": "[resourceId('Microsoft.DocumentDB/databaseAccounts/sqlRoleDefinitions', parameters('cosmosDbAccountName'), variables('dataContributorRoleId'))]",
-            "cosmosContributorRoleId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '5bd9cd88-fe45-4216-938b-f97437e15450')]"
+            "cosmosContributorRoleId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '5bd9cd88-fe45-4216-938b-f97437e15450')]",
+            "cosmosOperatorRoleId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '230815da-be43-4aae-9cb4-875f7bd000aa')]"
           },
           "resources": [
             {
               "type": "Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments",
               "apiVersion": "2024-05-15",
+              "name": "[format('{0}/{1}', parameters('cosmosDbAccountName'), guid(parameters('principalId'), parameters('cosmosDbAccountName'), 'custom-data-owner', parameters('roleAssignmentSalt')))]",
+              "properties": {
+                "roleDefinitionId": "[parameters('dataOwnerRoleDefinitionId')]",
+                "principalId": "[parameters('principalId')]",
+                "scope": "[resourceId('Microsoft.DocumentDB/databaseAccounts', parameters('cosmosDbAccountName'))]"
+              }
+            },
+            {
+              "type": "Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments",
+              "apiVersion": "2024-05-15",
               "name": "[format('{0}/{1}', parameters('cosmosDbAccountName'), guid(parameters('principalId'), parameters('cosmosDbAccountName'), variables('dataContributorRoleId'), parameters('roleAssignmentSalt')))]",
               "properties": {
-                "roleDefinitionId": "[variables('roleDefinitionId')]",
+                "roleDefinitionId": "[resourceId('Microsoft.DocumentDB/databaseAccounts/sqlRoleDefinitions', parameters('cosmosDbAccountName'), variables('dataContributorRoleId'))]",
                 "principalId": "[parameters('principalId')]",
                 "scope": "[resourceId('Microsoft.DocumentDB/databaseAccounts', parameters('cosmosDbAccountName'))]"
               }
@@ -1462,21 +1608,40 @@
                 "roleDefinitionId": "[variables('cosmosContributorRoleId')]",
                 "principalId": "[parameters('principalId')]"
               }
+            },
+            {
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "scope": "[format('Microsoft.DocumentDB/databaseAccounts/{0}', parameters('cosmosDbAccountName'))]",
+              "name": "[guid(parameters('principalId'), parameters('cosmosDbAccountName'), 'operator', parameters('roleAssignmentSalt'))]",
+              "properties": {
+                "roleDefinitionId": "[variables('cosmosOperatorRoleId')]",
+                "principalId": "[parameters('principalId')]"
+              }
             }
           ],
           "outputs": {
-            "roleAssignmentId": {
+            "dataOwnerRoleAssignmentId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments', parameters('cosmosDbAccountName'), guid(parameters('principalId'), parameters('cosmosDbAccountName'), 'custom-data-owner', parameters('roleAssignmentSalt')))]"
+            },
+            "dataContributorRoleAssignmentId": {
               "type": "string",
               "value": "[resourceId('Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments', parameters('cosmosDbAccountName'), guid(parameters('principalId'), parameters('cosmosDbAccountName'), variables('dataContributorRoleId'), parameters('roleAssignmentSalt')))]"
             },
-            "controlPlaneRoleId": {
+            "controlPlaneContributorRoleId": {
               "type": "string",
               "value": "[extensionResourceId(resourceId('Microsoft.DocumentDB/databaseAccounts', parameters('cosmosDbAccountName')), 'Microsoft.Authorization/roleAssignments', guid(parameters('principalId'), parameters('cosmosDbAccountName'), 'contributor', parameters('roleAssignmentSalt')))]"
+            },
+            "controlPlaneOperatorRoleId": {
+              "type": "string",
+              "value": "[extensionResourceId(resourceId('Microsoft.DocumentDB/databaseAccounts', parameters('cosmosDbAccountName')), 'Microsoft.Authorization/roleAssignments', guid(parameters('principalId'), parameters('cosmosDbAccountName'), 'operator', parameters('roleAssignmentSalt')))]"
             }
           }
         }
       },
       "dependsOn": [
+        "cosmosDataRole",
         "cosmosdb",
         "rg"
       ]
@@ -1531,8 +1696,8 @@
           "azureOpenAIEmbDeployment": {
             "value": "[reference('openai').outputs.embeddingDeploymentName.value]"
           },
-          "azureOpenAIMiniDeployment": {
-            "value": "[reference('openai').outputs.miniDeploymentName.value]"
+          "azureOpenAIProcessingModel": {
+            "value": "[reference('openai').outputs.processingDeploymentName.value]"
           },
           "imageName": "[if(not(empty(parameters('demoImageName'))), createObject('value', parameters('demoImageName')), createObject('value', ''))]",
           "imageTag": {
@@ -1561,7 +1726,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.38.33.27573",
-              "templateHash": "3187729007928567809"
+              "templateHash": "7599227710629118467"
             }
           },
           "parameters": {
@@ -1604,7 +1769,7 @@
             "azureOpenAIEmbDeployment": {
               "type": "string"
             },
-            "azureOpenAIMiniDeployment": {
+            "azureOpenAIProcessingModel": {
               "type": "string"
             },
             "imageName": {
@@ -1705,7 +1870,7 @@
                         "cpu": "[json('0.5')]",
                         "memory": "1Gi"
                       },
-                      "env": "[concat(createArray(createObject('name', 'COSMOS_ENDPOINT', 'value', parameters('cosmosDbEndpoint')), createObject('name', 'COSMOS_DATABASE_NAME', 'value', parameters('cosmosDbName')), createObject('name', 'AZURE_OPENAI_ENDPOINT', 'value', parameters('azureOpenAIEndpoint')), createObject('name', 'AZURE_OPENAI_API_KEY', 'secretRef', 'openai-key'), createObject('name', 'AZURE_OPENAI_CHAT_DEPLOYMENT', 'value', parameters('azureOpenAIChatDeploymentName')), createObject('name', 'AZURE_OPENAI_EMB_DEPLOYMENT', 'value', parameters('azureOpenAIEmbDeployment')), createObject('name', 'AZURE_OPENAI_MINI_DEPLOYMENT', 'value', parameters('azureOpenAIMiniDeployment')), createObject('name', 'USE_MANAGED_IDENTITY', 'value', string(parameters('useCosmosManagedIdentity'))), createObject('name', 'AZURE_CLIENT_ID', 'value', parameters('userAssignedIdentityClientId'))), if(parameters('useCosmosManagedIdentity'), createArray(), createArray(createObject('name', 'COSMOS_KEY', 'secretRef', 'cosmos-key'))))]"
+                      "env": "[concat(createArray(createObject('name', 'COSMOS_ENDPOINT', 'value', parameters('cosmosDbEndpoint')), createObject('name', 'COSMOS_DATABASE_NAME', 'value', parameters('cosmosDbName')), createObject('name', 'AZURE_OPENAI_ENDPOINT', 'value', parameters('azureOpenAIEndpoint')), createObject('name', 'AZURE_OPENAI_API_KEY', 'secretRef', 'openai-key'), createObject('name', 'AZURE_OPENAI_CHAT_DEPLOYMENT', 'value', parameters('azureOpenAIChatDeploymentName')), createObject('name', 'AZURE_OPENAI_EMB_DEPLOYMENT', 'value', parameters('azureOpenAIEmbDeployment')), createObject('name', 'AZURE_OPENAI_PROCESSING_MODEL', 'value', parameters('azureOpenAIProcessingModel')), createObject('name', 'USE_MANAGED_IDENTITY', 'value', string(parameters('useCosmosManagedIdentity'))), createObject('name', 'AZURE_CLIENT_ID', 'value', parameters('userAssignedIdentityClientId'))), if(parameters('useCosmosManagedIdentity'), createArray(), createArray(createObject('name', 'COSMOS_KEY', 'secretRef', 'cosmos-key'))))]"
                     }
                   ],
                   "scale": {
@@ -1815,9 +1980,9 @@
       "type": "string",
       "value": "[reference('openai').outputs.embeddingDeploymentName.value]"
     },
-    "AZURE_OPENAI_MINI_DEPLOYMENT": {
+    "AZURE_OPENAI_PROCESSING_MODEL": {
       "type": "string",
-      "value": "[reference('openai').outputs.miniDeploymentName.value]"
+      "value": "[reference('openai').outputs.processingDeploymentName.value]"
     },
     "AZURE_COSMOS_ENDPOINT": {
       "type": "string",

@@ -54,7 +54,7 @@ async def lifespan(app: FastAPI):
         base_url=server_config.azure_openai_endpoint_v1,
         api_key=server_config.azure_openai_api_key,
     )
-    logger.info(f"✓ Azure OpenAI client initialized: {server_config.AZURE_OPENAI_CHAT_DEPLOYMENT}")
+    logger.info(f"✓ Azure OpenAI client initialized: {server_config.azure_openai_chat_deployment}")
     
     # Initialize Cosmos DB client (shared)
     # Try authentication methods in order: Key -> Service Principal -> Managed Identity
@@ -116,7 +116,8 @@ async def lifespan(app: FastAPI):
         database_name=server_config.cosmos_db_name,
         interactions_container=server_config.cosmos_interactions_container,
         summaries_container=server_config.cosmos_summaries_container,
-        insights_container=server_config.cosmos_insights_container
+        insights_container=server_config.cosmos_insights_container,
+        processing_model=server_config.azure_openai_processing_model
     )
     
     # Initialize session pool

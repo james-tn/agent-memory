@@ -138,7 +138,7 @@ Create CosmosDB containers with vector search support:
 ```bash
 # Set environment variables
 export COSMOS_ENDPOINT="https://your-account.documents.azure.com:443/"
-export COSMOS_DATABASE="cosmosvector"
+export COSMOS_DATABASE="agent_memory_db"
 export AAD_TENANT_ID="your-tenant-id"
 export AAD_CLIENT_ID="your-client-id"
 export AAD_CLIENT_SECRET="your-client-secret"
@@ -159,7 +159,7 @@ Create a `.env` file in the root directory:
 ```bash
 # Azure CosmosDB
 COSMOS_ENDPOINT=https://your-account.documents.azure.com:443/
-COSMOS_DATABASE=cosmosvector
+COSMOS_DATABASE=agent_memory_db
 COSMOS_KEY=your-key  # Optional if using AAD
 
 # AAD Authentication (if not using COSMOS_KEY)
@@ -798,7 +798,7 @@ recommend a safer alternative like Azithromycin instead."
 ```bash
 # CosmosDB
 COSMOS_ENDPOINT=https://your-account.documents.azure.com:443/
-COSMOS_DATABASE=cosmosvector
+COSMOS_DATABASE=agent_memory_db
 COSMOS_KEY=your-key                    # Optional if using AAD
 COSMOS_INTERACTIONS_CONTAINER=interactions
 COSMOS_SUMMARIES_CONTAINER=session_summaries

@@ -25,9 +25,11 @@ from agent_framework.azure import AzureOpenAIChatClient
 
 from memory.cosmos_memory_provider_embedded import CosmosMemoryProvider
 from memory.provider_config import CosmosMemoryProviderConfig
+from memory.config import MemoryConfig
 from demo.setup_cosmosdb import get_cosmos_client, get_openai_client
-
-
+from dotenv import load_dotenv
+load_dotenv()  # Load environment variables from .env file
+print("AZURE_COSMOS_DATABASE_NAME: ",os.getenv("AZURE_COSMOS_DATABASE_NAME"))
 def get_401k_contribution_limit(year: int) -> str:
     """Tool: Get 401k contribution limits for a given year."""
     limits = {
@@ -64,24 +66,32 @@ async def main() -> None:
     cosmos_client = get_cosmos_client()
     openai_client = get_openai_client()
     
-    # Configure memory provider
-    config = CosmosMemoryProviderConfig(
-        database_name=os.getenv("COSMOS_DB_NAME", "cosmosvector"),
-        include_longterm_insights=True,
-        include_recent_sessions=True,
-        include_cumulative_summary=True,
-        include_active_turns=False,  # Don't duplicate thread history
-        trigger_reflection_on_end=True,  # Generate insights
-        num_recent_sessions=3,
-        auto_manage_sessions=False  # Manual session management for workaround
+    # Configure core memory behavior
+    memory_config = MemoryConfig(
+        database_name=os.getenv("AZURE_COSMOS_DATABASE_NAME", "agent_memory_db"),
+        buffer_size=20,
+        active_turns=10,
+        trigger_reflection_on_end=True,  # Generate insights at session end
+        min_confidence=0.7,  # Insight confidence threshold
+        reasoning_model=os.getenv("AZURE_OPENAI_REASONING_MODEL"),
+        processing_model=os.getenv("AZURE_OPENAI_PROCESSING_MODEL")
+    )
+    
+    # Configure Agent Framework integration
+    provider_config = CosmosMemoryProviderConfig(
+        memory_config=memory_config,
+        inject_instructions=True,
+        inject_messages=True,
+        auto_manage_session=True  # Session starts automatically on first agent.run()
     )
     
     # Create memory provider
     memory_provider = CosmosMemoryProvider(
         user_id=user_id,
+        memory_config=memory_config,
         cosmos_client=cosmos_client,
         openai_client=openai_client,
-        config=config
+        config=provider_config
     )
     
     print(f"Client ID: {user_id}")
@@ -112,9 +122,8 @@ async def main() -> None:
     # Create thread - it will automatically get the agent's context provider
     thread = agent.get_new_thread()
     
-    # Manually start session (since auto_manage_sessions=False)
-    await memory_provider._memory.start_session()
-    memory_provider._session_active = True
+    # Note: Session starts automatically on first agent.run() (auto_manage_session=True)
+    # You still must call end_session_explicit() when done
     
     try:
         # Question 1: Introduce yourself
@@ -171,9 +180,7 @@ async def main() -> None:
     # Agent's context provider is automatically attached
     thread = agent.get_new_thread()
     
-    # Manually start session (since auto_manage_sessions=False)
-    await memory_provider._memory.start_session()
-    memory_provider._session_active = True
+    # Note: Session starts automatically on first agent.run() (auto_manage_session=True)
     
     try:
         # Question 1: Ask about investments WITHOUT repeating profile
@@ -213,9 +220,7 @@ async def main() -> None:
     # Agent's context provider is automatically attached
     thread = agent.get_new_thread()
     
-    # Manually start session (since auto_manage_sessions=False)
-    await memory_provider._memory.start_session()
-    memory_provider._session_active = True
+    # Note: Session starts automatically on first agent.run() (auto_manage_session=True)
     
     try:
         # Question: Tax strategy

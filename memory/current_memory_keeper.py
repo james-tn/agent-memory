@@ -423,7 +423,7 @@ class CurrentMemoryKeeper:
         
         # Use structured output with Pydantic model
         response = self.chat_client.responses.parse(
-            model=self.config.MINI_DEPLOYMENT,
+            model=self.config.PROCESSING_MODEL,
             input=[
                 {"role": "system", "content": "You are a metadata extraction assistant."},
                 {"role": "user", "content": prompt}
@@ -476,9 +476,8 @@ class CurrentMemoryKeeper:
         )
         
         # Use structured output
-        print("self.config.MINI_DEPLOYMENT ", self.config.MINI_DEPLOYMENT)
         response = self.chat_client.responses.parse(
-            model=self.config.MINI_DEPLOYMENT,
+            model=self.config.PROCESSING_MODEL,
             input=[
                 {"role": "system", "content": "You are a conversation summarization assistant."},
                 {"role": "user", "content": prompt}

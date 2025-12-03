@@ -364,7 +364,7 @@ AZURE_OPENAI_DEPLOYMENT=gpt-5-nano
 # CosmosDB
 COSMOS_ENDPOINT=https://...
 COSMOS_KEY=...
-COSMOS_DATABASE_NAME=cosmosvector
+COSMOS_DATABASE_NAME=agent_memory_db
 
 # Memory
 K_TURN_BUFFER=5

@@ -118,7 +118,7 @@ class ContextualFactRetrieval:
         
         # Create the Agent Framework agent with the search tools
         self.agent = ChatAgent(
-            chat_client=AzureOpenAIChatClient(credential=DefaultAzureCredential(),deployment_name=config.CHAT_DEPLOYMENT),
+            chat_client=AzureOpenAIChatClient(credential=DefaultAzureCredential(),deployment_name=config.REASONING_MODEL),
             instructions="""You are a memory retrieval assistant. Your job is to search through past conversations, 
 session summaries, and long-term insights to find relevant information for the user's query.
 

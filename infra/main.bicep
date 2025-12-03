@@ -217,7 +217,7 @@ module demoApp './modules/demo-app.bicep' = {
     azureOpenAIKey: openai.outputs.key
     azureOpenAIChatDeploymentName: openai.outputs.chatDeploymentName
     azureOpenAIEmbDeployment: openai.outputs.embeddingDeploymentName
-    azureOpenAIMiniDeployment: openai.outputs.miniDeploymentName
+    azureOpenAIProcessingModel: openai.outputs.processingDeploymentName
     imageName: !empty(demoImageName) ? demoImageName : ''
     imageTag: demoImageTag
     enableAuth: enableAuth
@@ -236,7 +236,7 @@ output AZURE_RESOURCE_GROUP string = rg.name
 output AZURE_OPENAI_ENDPOINT string = openai.outputs.endpoint
 output AZURE_OPENAI_CHAT_DEPLOYMENT string = openai.outputs.chatDeploymentName
 output AZURE_OPENAI_EMB_DEPLOYMENT string = openai.outputs.embeddingDeploymentName
-output AZURE_OPENAI_MINI_DEPLOYMENT string = openai.outputs.miniDeploymentName
+output AZURE_OPENAI_PROCESSING_MODEL string = openai.outputs.processingDeploymentName
 
 output AZURE_COSMOS_ENDPOINT string = cosmosdb.outputs.endpoint
 output AZURE_COSMOS_ACCOUNT_NAME string = cosmosdb.outputs.accountName

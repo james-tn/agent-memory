@@ -372,7 +372,7 @@ class ReflectionProcess:
         
         try:
             response = self.chat_client.responses.parse(
-                model=self.config.MINI_DEPLOYMENT,
+                model=self.config.PROCESSING_MODEL,
                 input=[
                     {"role": "system", "content": "You are an expert session analysis assistant."},
                     {"role": "user", "content": prompt}
@@ -410,7 +410,7 @@ class ReflectionProcess:
         
         try:
             response = self.chat_client.responses.parse(
-                model=self.config.MINI_DEPLOYMENT,
+                model=self.config.PROCESSING_MODEL,
                 input=[
                     {"role": "system", "content": "You are a long-term pattern synthesis assistant for agent memory."},
                     {"role": "user", "content": prompt}

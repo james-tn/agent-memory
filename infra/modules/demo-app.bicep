@@ -18,7 +18,7 @@ param azureOpenAIEndpoint string
 param azureOpenAIKey string
 param azureOpenAIChatDeploymentName string
 param azureOpenAIEmbDeployment string
-param azureOpenAIMiniDeployment string
+param azureOpenAIProcessingModel string
 
 param imageName string = ''
 
@@ -141,8 +141,8 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
               value: azureOpenAIEmbDeployment
             }
             {
-              name: 'AZURE_OPENAI_MINI_DEPLOYMENT'
-              value: azureOpenAIMiniDeployment
+              name: 'AZURE_OPENAI_PROCESSING_MODEL'
+              value: azureOpenAIProcessingModel
             }
             {
               name: 'USE_MANAGED_IDENTITY'

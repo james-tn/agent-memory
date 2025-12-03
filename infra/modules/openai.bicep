@@ -22,14 +22,14 @@ param embeddingModelName string = 'text-embedding-ada-002'
 @description('Embedding model version')
 param embeddingModelVersion string = '2'
 
-@description('Mini model deployment name')
-param miniDeploymentName string = 'gpt-5-mini'
+@description('Processing model deployment name (for fast operations like metadata/summaries)')
+param processingDeploymentName string = 'gpt-5-mini'
 
-@description('Mini model name')
-param miniModelName string = 'gpt-5-mini'
+@description('Processing model name')
+param processingModelName string = 'gpt-5-mini'
 
-@description('Mini model version')
-param miniModelVersion string = '2025-08-07'
+@description('Processing model version')
+param processingModelVersion string = '2025-08-07'
 
 var openAIName = '${baseName}-${environmentName}-openai'
 
@@ -82,9 +82,9 @@ resource embeddingDeployment 'Microsoft.CognitiveServices/accounts/deployments@2
   ]
 }
 
-resource miniDeployment 'Microsoft.CognitiveServices/accounts/deployments@2023-05-01' = {
+resource processingDeployment 'Microsoft.CognitiveServices/accounts/deployments@2023-05-01' = {
   parent: openAI
-  name: miniDeploymentName
+  name: processingDeploymentName
   sku: {
     name: 'GlobalStandard'
     capacity: 30
@@ -92,8 +92,8 @@ resource miniDeployment 'Microsoft.CognitiveServices/accounts/deployments@2023-0
   properties: {
     model: {
       format: 'OpenAI'
-      name: miniModelName
-      version: miniModelVersion
+      name: processingModelName
+      version: processingModelVersion
     }
   }
   dependsOn: [
@@ -107,4 +107,4 @@ output key string = openAI.listKeys().key1
 output openAIName string = openAI.name
 output chatDeploymentName string = chatDeployment.name
 output embeddingDeploymentName string = embeddingDeployment.name
-output miniDeploymentName string = miniDeployment.name
+output processingDeploymentName string = processingDeployment.name

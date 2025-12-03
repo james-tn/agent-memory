@@ -45,16 +45,16 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-chat_deployment=os.getenv("AZURE_OPENAI_CHAT_DEPLOYMENT")
+reasoning_model=os.getenv("AZURE_OPENAI_REASONING_MODEL")
 embedding_model=os.getenv("AZURE_OPENAI_EMB_DEPLOYMENT")
-mini_deployment=os.getenv("AZURE_OPENAI_MINI_DEPLOYMENT")
+processing_model=os.getenv("AZURE_OPENAI_PROCESSING_MODEL")
 cosmos_db_name=os.getenv("AZURE_COSMOS_DATABASE_NAME")
 interactions_container_name=os.getenv("AZURE_COSMOS_INTERACTIONS_CONTAINER", "interactions")
 insights_container_name=os.getenv("AZURE_COSMOS_INSIGHTS_CONTAINER", "insights")
 summaries_container_name=os.getenv("AZURE_COSMOS_SUMMARIES_CONTAINER", "session_summaries")
-print("chat deployment", chat_deployment)
-print("embedding deployment", embedding_model)
-print("mini deployment ", mini_deployment)
+print("reasoning model", reasoning_model)
+print("embedding model", embedding_model)
+print("processing model", processing_model)
 print("OpenAI URI ", os.getenv("AZURE_OPENAI_ENDPOINT"))
 print("Cosmos DB ", cosmos_db_name)
 print("Interactions container ", interactions_container_name)
@@ -352,9 +352,9 @@ def initialize_memory_service(user_id: str, session_id: str):
     
     # Create config and cosmos utilities
     config = MemoryConfig(
-        chat_deployment=chat_deployment,
+        reasoning_model=reasoning_model,
         embedding_model=embedding_model,
-        mini_deployment=mini_deployment,
+        processing_model=processing_model,
         database_name=cosmos_db_name,
         interactions_container=interactions_container_name,
         insights_container=insights_container_name,

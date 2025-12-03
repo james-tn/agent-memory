@@ -14,7 +14,7 @@ class MemoryConfig:
     num_recent_sessions_for_init: int = 2  # Recent session summaries to load at start
     
     # CosmosDB settings (with sensible defaults)
-    database_name: str = "cosmosvector"
+    database_name: str = "agent_memory_db"
     interactions_container: str = "interactions"
     summaries_container: str = "session_summaries"
     insights_container: str = "insights"
@@ -33,9 +33,13 @@ class MemoryConfig:
     min_confidence: float = 0.7  # Insight confidence threshold
     min_sessions_for_aggregation: int = 3  # Min sessions before aggregation
     
-    # Azure OpenAI (optional - can be set from connection)
-    chat_deployment: Optional[str] = None
-    mini_deployment: Optional[str] = None
+    # Azure OpenAI Deployments
+    # - reasoning_model: Complex reasoning tasks (CFR agent, synthesis, complex queries)
+    #   Typically: gpt-4, gpt-4o, gpt-4-turbo
+    # - processing_model: Fast operations (metadata extraction, summaries, structured output)
+    #   Typically: gpt-4o-mini, gpt-35-turbo
+    reasoning_model: Optional[str] = None
+    processing_model: Optional[str] = None
     embedding_model: str = "text-embedding-ada-002"
     embedding_dimensions: int = 1536
     
@@ -95,12 +99,12 @@ class MemoryConfig:
         return self.summaries_container
     
     @property
-    def CHAT_DEPLOYMENT(self) -> Optional[str]:
-        return self.chat_deployment 
+    def REASONING_MODEL(self) -> Optional[str]:
+        return self.reasoning_model
     
     @property
-    def MINI_DEPLOYMENT(self) -> Optional[str]:
-        return self.mini_deployment 
+    def PROCESSING_MODEL(self) -> Optional[str]:
+        return self.processing_model
     
     @property
     def EMBEDDING_MODEL(self) -> str:

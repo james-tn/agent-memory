@@ -28,7 +28,7 @@ else:
 
 class CosmosMemoryProvider(ContextProvider):
     """
-    CosmosDB Memory Context Provider for Agent Framework.
+    CosmosDB Memory Context Provider for Agent Framework (Embedded Version).
     
     Provides multi-tier memory with:
     - Long-term user insights (persistent across all sessions)
@@ -36,30 +36,38 @@ class CosmosMemoryProvider(ContextProvider):
     - Cumulative summary (current session compression)
     - Active turns (recent conversation buffer)
     
-    Features:
-    - Automatic session management via thread_id
-    - Configurable context injection
-    - Automatic reflection on session end
-    - Seamless integration with Agent Framework
+    Important: Session Management
+    ------------------------------
+    Due to Agent Framework lifecycle behavior, automatic session management via
+    context managers (__aenter__/__aexit__) is NOT reliable. The framework exits
+    the provider's context immediately after invoking(), which would end the session
+    before invoked() can store conversation turns.
     
-    Examples:
-        # Simplest usage
+    Recommended Usage (Auto-start with Manual End):
         provider = CosmosMemoryProvider(
             user_id="user123",
             cosmos_connection_string=os.getenv("COSMOS_CONNECTION_STRING"),
-            openai_client=openai_client
+            openai_client=openai_client,
+            config=CosmosMemoryProviderConfig(
+                auto_manage_session=True  # Auto-starts on first invoking()
+            )
         )
         
-        async with agent.create_agent(
-            context_providers=provider
-        ) as agent:
+        async with provider:
+            agent = ChatAgent(
+                chat_client=...,
+                context_providers=[provider]
+            )
+            
+            # Session starts automatically on first run
             result = await agent.run("What's a Roth IRA?")
-        
-        # With custom configuration
+            
+            # Must explicitly end session when done
+            await provider.end_session_explicit()
+    
+    Alternative (Full Manual Control):
         config = CosmosMemoryProviderConfig(
-            include_longterm_insights=True,
-            num_recent_sessions=3,
-            buffer_size=15
+            auto_manage_session=False  # Full manual control
         )
         
         provider = CosmosMemoryProvider(
@@ -68,22 +76,31 @@ class CosmosMemoryProvider(ContextProvider):
             openai_client=openai_client,
             config=config
         )
+        
+        async with provider:
+            # Manually start session
+            await provider._memory.start_session()
+            provider._session_active = True
+            
+            agent = ChatAgent(..., context_providers=[provider])
+            result = await agent.run("Hello")
+            
+            # Manually end session
+            await provider.end_session_explicit()
     """
     
     def __init__(
         self,
         user_id: str,
+        memory_config: MemoryConfig,
         *,
-        # CosmosDB connection (simplified)
+        # CosmosDB connection
         cosmos_connection_string: Optional[str] = None,
         cosmos_client: Optional[CosmosClient] = None,
         openai_client: Optional[AzureOpenAI] = None,
         
-        # Provider-specific configuration
+        # Agent Framework settings
         config: Optional[CosmosMemoryProviderConfig] = None,
-        
-        # Legacy: Direct memory configuration
-        memory_config: Optional[MemoryConfig] = None,
         
         # Advanced: Pre-created memory instance
         cosmos_memory: Optional[CosmosAgentMemory] = None,
@@ -92,13 +109,15 @@ class CosmosMemoryProvider(ContextProvider):
         Initialize CosmosMemoryProvider.
         
         Args:
-            user_id: User identifier (required)
-            cosmos_connection_string: Cosmos connection string (simplest)
+            user_id: User identifier
+            memory_config: Core memory configuration (buffer size, reflection, etc.)
+            cosmos_connection_string: Cosmos connection string
             cosmos_client: Pre-created CosmosClient
             openai_client: Azure OpenAI client for embeddings
-            config: Provider configuration (uses defaults if not provided)
-            memory_config: Core memory configuration (optional)
-            cosmos_memory: Pre-created CosmosAgentMemory instance (advanced)
+            config: Agent Framework integration settings (context injection, auto-session).
+                   If not provided, uses defaults with the provided memory_config.
+            cosmos_memory: Pre-created CosmosAgentMemory instance (advanced).
+                          Use this to share memory across providers.
         
         Raises:
             ServiceInitializationError: If user_id is missing or invalid connection
@@ -108,43 +127,21 @@ class CosmosMemoryProvider(ContextProvider):
             raise ServiceInitializationError("user_id is required")
         
         self.user_id = user_id
-        self.config = config or CosmosMemoryProviderConfig()
+        self.config = config or CosmosMemoryProviderConfig(memory_config=memory_config)
         
         # Create or use provided CosmosAgentMemory
         if cosmos_memory:
             self._memory = cosmos_memory
             self._own_memory = False
         else:
-            # Convert provider config to memory config if needed
-            if not memory_config:
-                memory_config = MemoryConfig(
-                    buffer_size=self.config.buffer_size,
-                    active_turns=self.config.active_turns,
-                    database_name=self.config.database_name,
-                    interactions_container=self.config.interactions_container,
-                    summaries_container=self.config.summaries_container,
-                    insights_container=self.config.insights_container,
-                    trigger_reflection_on_end=self.config.trigger_reflection_on_end,
-                    min_confidence=self.config.min_confidence,
-                    top_k_results=self.config.top_k_results,
-                    similarity_threshold=self.config.similarity_threshold
-                )
-                
-                # Set insight categories if provided
-                if self.config.insight_categories is not None:
-                    memory_config.insight_categories = self.config.insight_categories
-                
-                # Pass auto_manage_sessions setting to memory layer
-                memory_config.auto_manage_sessions = self.config.auto_manage_sessions
-            
             try:
                 self._memory = CosmosAgentMemory(
                     user_id=user_id,
                     cosmos_connection_string=cosmos_connection_string,
                     cosmos_client=cosmos_client,
                     openai_client=openai_client,
-                    config=memory_config,
-                    auto_start_session=False  # We'll manage sessions via thread_created
+                    config=self.config.memory_config,
+                    auto_start_session=False  # We'll manage sessions via invoking()/thread_created()
                 )
                 self._own_memory = True
             except ValueError as e:
@@ -166,19 +163,18 @@ class CosmosMemoryProvider(ContextProvider):
         exc_val: BaseException | None, 
         exc_tb: Any
     ) -> None:
-        """Context manager exit - ends session if active."""
-        if self._session_active and self.config.auto_manage_sessions:
-            try:
-                await self._memory.end_session(
-                    trigger_reflection=self.config.trigger_reflection_on_end
-                )
-                self._session_active = False
-            except Exception as e:
-                # Log but don't fail - this is cleanup
-                print(f"Warning: Failed to end session on exit: {e}")
+        """Context manager exit - only cleanup resources.
         
-        if self._own_memory:
-            await self._memory.__aexit__(exc_type, exc_val, exc_tb)
+        Note: Session management is NOT handled here because the framework
+        exits the context before invoked() is called. Sessions must be
+        explicitly ended via end_session_explicit().
+        
+        We also don't call the underlying memory's __aexit__ because that
+        would end the session, preventing invoked() from storing turns.
+        """
+        # Do NOT end session or call memory.__aexit__ here
+        # Both would prevent invoked() from storing turns
+        pass
     
     @override
     async def thread_created(self, thread_id: str | None = None) -> None:
@@ -191,7 +187,7 @@ class CosmosMemoryProvider(ContextProvider):
         """
         self._current_thread_id = thread_id
         
-        if self.config.auto_manage_sessions:
+        if self.config.auto_manage_session:
             # Determine session_id based on config
             if self.config.use_thread_as_session:
                 # Use thread_id as session_id (one session per thread)
@@ -229,8 +225,26 @@ class CosmosMemoryProvider(ContextProvider):
         Returns:
             Context with memory injected as messages or instructions
         """
+        # Lazy session start for local threads (thread_created not called for them)
+        if not self._session_active and self.config.auto_manage_session:
+            try:
+                # Determine session_id based on config
+                if self.config.use_thread_as_session and self._current_thread_id:
+                    session_id = self._current_thread_id
+                else:
+                    session_id = None  # Auto-generated
+                
+                await self._memory.start_session(session_id=session_id)
+                self._session_active = True
+                print(f"[Provider] Auto-started session in invoking()")
+            except Exception as e:
+                print(f"Warning: Failed to auto-start session: {e}")
+                import traceback
+                traceback.print_exc()
+                return Context()
+        
         if not self._session_active:
-            # Session not started - return empty context
+            # Session not started and auto-start failed - return empty context
             return Context()
         
         try:
@@ -316,7 +330,7 @@ class CosmosMemoryProvider(ContextProvider):
             invoke_exception: Exception if invocation failed
             **kwargs: Additional arguments
         """
-        print(f"[Provider] invoked() called - session_active: {self._session_active}")
+        print(f"[Provider] invoked() called - provider session_active: {self._session_active}")
         if not self._session_active:
             return
         
@@ -370,15 +384,18 @@ class CosmosMemoryProvider(ContextProvider):
         """
         Explicitly end the current session.
         
-        Useful when auto_manage_sessions=False or when you want
-        to manually trigger session end before the provider exits.
+        This MUST be called when the conversation is complete, regardless of
+        the auto_manage_session setting. The framework's context manager
+        lifecycle does not align with session boundaries.
+        
+        Best practice: Call this after your final agent.run() in a conversation.
         
         Returns:
             Session summary, topics, and extracted insights
         """
         if self._session_active:
             result = await self._memory.end_session(
-                trigger_reflection=self.config.trigger_reflection_on_end
+                trigger_reflection=self.config.memory_config.trigger_reflection_on_end
             )
             self._session_active = False
             return result
@@ -416,7 +433,7 @@ class CosmosMemoryProvider(ContextProvider):
             "thread_id": self._current_thread_id,
             "session_active": self._session_active,
             "config": {
-                "auto_manage_sessions": self.config.auto_manage_sessions,
+                "auto_manage_session": self.config.auto_manage_session,
                 "use_thread_as_session": self.config.use_thread_as_session,
                 "include_longterm_insights": self.config.include_longterm_insights,
                 "include_recent_sessions": self.config.include_recent_sessions,

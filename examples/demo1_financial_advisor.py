@@ -76,15 +76,15 @@ async def main() -> None:
     print("─" * 80)
     print()
     
-    # Create remote memory provider - client controls session lifecycle
+    # Create remote memory provider - session auto-starts on first use
     memory_provider = CosmosMemoryProvider(
         service_url=memory_service_url,
         user_id=user_id,
-        auto_manage_session=False  # Client manually manages session (prevents Agent Framework from auto-ending)
+        auto_manage_session=True  # Session starts automatically on first agent.run()
     )
     
-    # Explicitly start the session
-    await memory_provider._start_session()
+    # Note: Session will start automatically on first agent.run()
+    # You still must call end_session() explicitly when done
     
     # Create the agent with remote memory provider
     agent = ChatAgent(
@@ -131,9 +131,10 @@ async def main() -> None:
     print()
     
     # Wait for all invoked() callbacks to complete storing turns
-    await asyncio.sleep(1.0)
+    await asyncio.sleep(0.5)
     
-    # Client explicitly ends session - triggers summarization on server
+    # Explicitly end session - triggers summarization and reflection on server
+    # Note: This is REQUIRED - cannot rely on context manager __aexit__
     await memory_provider.end_session()
     await memory_provider.close()
     
@@ -161,11 +162,11 @@ async def main() -> None:
     memory_provider = CosmosMemoryProvider(
         service_url=memory_service_url,
         user_id=user_id,  # Same user
-        auto_manage_session=False  # Client manually manages session
+        auto_manage_session=True  # Session starts automatically on first agent.run()
     )
     
-    # Explicitly start the session
-    await memory_provider._start_session()
+    # Note: Session will start automatically on first agent.run()
+    # You still must call end_session() explicitly when done
     
     # Create agent again (could be different instance, e.g., after server restart)
     agent = ChatAgent(
@@ -198,7 +199,11 @@ async def main() -> None:
     print(f"💼 Advisor: {result.text[:500]}...")
     print()
     
-    # Client explicitly ends session - triggers summarization on server
+    # Wait for all invoked() callbacks to complete
+    await asyncio.sleep(0.5)
+    
+    # Explicitly end session - triggers summarization and reflection on server
+    # Note: This is REQUIRED - cannot rely on context manager __aexit__
     await memory_provider.end_session()
     await memory_provider.close()
     
@@ -221,11 +226,11 @@ async def main() -> None:
     memory_provider = CosmosMemoryProvider(
         service_url=memory_service_url,
         user_id=user_id,  # Same user
-        auto_manage_session=False  # Client manually manages session
+        auto_manage_session=True  # Session starts automatically on first agent.run()
     )
     
-    # Explicitly start the session
-    await memory_provider._start_session()
+    # Note: Session will start automatically on first agent.run()
+    # You still must call end_session() explicitly when done
     
     agent = ChatAgent(
         chat_client=AzureOpenAIChatClient(credential=AzureCliCredential()),
@@ -256,7 +261,11 @@ async def main() -> None:
     print(f"💼 Advisor: {result.text[:150]}...")
     print()
     
-    # Client explicitly ends session - triggers summarization on server
+    # Wait for all invoked() callbacks to complete
+    await asyncio.sleep(0.5)
+    
+    # Explicitly end session - triggers summarization and reflection on server
+    # Note: This is REQUIRED - cannot rely on context manager __aexit__
     await memory_provider.end_session()
     await memory_provider.close()
     
