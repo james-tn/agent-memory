@@ -13,7 +13,7 @@ class BaseAgent:
     """  
   
     def __init__(self, state_store: Dict[str, Any], session_id: str) -> None:  
-        self.azure_deployment = os.getenv("AZURE_OPENAI_CHAT_DEPLOYMENT")  
+        self.azure_deployment = os.getenv("AZURE_OPENAI_REASONING_MODEL")  
         self.azure_openai_key = os.getenv("AZURE_OPENAI_API_KEY")  
         self.azure_openai_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")  
         self.api_version = os.getenv("AZURE_OPENAI_API_VERSION")  

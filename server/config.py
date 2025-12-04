@@ -31,10 +31,8 @@ class ServerConfig(BaseSettings):
     azure_openai_endpoint: str
 
     azure_openai_api_key: str
-    azure_openai_chat_deployment: str  # Main deployment for chat
+    azure_openai_reasoning_model: str  # Main deployment for chat
     azure_openai_api_version: str 
-    azure_openai_responses_deployment: str
-    azure_openai_chat_deployment: str
     azure_openai_processing_model: str 
     azure_openai_emb_deployment: str 
 
@@ -57,8 +55,9 @@ class ServerConfig(BaseSettings):
     # Memory Service Settings
     K_TURN_BUFFER: int = 5
     L_TURN_CHUNKS: int = 10
-    M_SESSIONS_RECENT: int = 5
+    M_SESSIONS_RECENT: int = 2
     reflection_threshold_turns: int = 15
+    longterm_synthesis_frequency: int = 2  # Synthesize long-term insights every N sessions
     
     # Logging
     log_level: str = "INFO"

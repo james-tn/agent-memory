@@ -1870,7 +1870,7 @@
                         "cpu": "[json('0.5')]",
                         "memory": "1Gi"
                       },
-                      "env": "[concat(createArray(createObject('name', 'COSMOS_ENDPOINT', 'value', parameters('cosmosDbEndpoint')), createObject('name', 'COSMOS_DATABASE_NAME', 'value', parameters('cosmosDbName')), createObject('name', 'AZURE_OPENAI_ENDPOINT', 'value', parameters('azureOpenAIEndpoint')), createObject('name', 'AZURE_OPENAI_API_KEY', 'secretRef', 'openai-key'), createObject('name', 'AZURE_OPENAI_CHAT_DEPLOYMENT', 'value', parameters('azureOpenAIChatDeploymentName')), createObject('name', 'AZURE_OPENAI_EMB_DEPLOYMENT', 'value', parameters('azureOpenAIEmbDeployment')), createObject('name', 'AZURE_OPENAI_PROCESSING_MODEL', 'value', parameters('azureOpenAIProcessingModel')), createObject('name', 'USE_MANAGED_IDENTITY', 'value', string(parameters('useCosmosManagedIdentity'))), createObject('name', 'AZURE_CLIENT_ID', 'value', parameters('userAssignedIdentityClientId'))), if(parameters('useCosmosManagedIdentity'), createArray(), createArray(createObject('name', 'COSMOS_KEY', 'secretRef', 'cosmos-key'))))]"
+                      "env": "[concat(createArray(createObject('name', 'COSMOS_ENDPOINT', 'value', parameters('cosmosDbEndpoint')), createObject('name', 'COSMOS_DATABASE_NAME', 'value', parameters('cosmosDbName')), createObject('name', 'AZURE_OPENAI_ENDPOINT', 'value', parameters('azureOpenAIEndpoint')), createObject('name', 'AZURE_OPENAI_API_KEY', 'secretRef', 'openai-key'), createObject('name', 'AZURE_OPENAI_REASONING_MODEL', 'value', parameters('azureOpenAIChatDeploymentName')), createObject('name', 'AZURE_OPENAI_EMB_DEPLOYMENT', 'value', parameters('azureOpenAIEmbDeployment')), createObject('name', 'AZURE_OPENAI_PROCESSING_MODEL', 'value', parameters('azureOpenAIProcessingModel')), createObject('name', 'USE_MANAGED_IDENTITY', 'value', string(parameters('useCosmosManagedIdentity'))), createObject('name', 'AZURE_CLIENT_ID', 'value', parameters('userAssignedIdentityClientId'))), if(parameters('useCosmosManagedIdentity'), createArray(), createArray(createObject('name', 'COSMOS_KEY', 'secretRef', 'cosmos-key'))))]"
                     }
                   ],
                   "scale": {
@@ -1972,7 +1972,7 @@
       "type": "string",
       "value": "[reference('openai').outputs.endpoint.value]"
     },
-    "AZURE_OPENAI_CHAT_DEPLOYMENT": {
+    "AZURE_OPENAI_REASONING_MODEL": {
       "type": "string",
       "value": "[reference('openai').outputs.chatDeploymentName.value]"
     },

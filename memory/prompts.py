@@ -66,8 +66,9 @@ Generate an updated summary that:
 1. Incorporates the new information
 2. Maintains key points from the previous summary
 3. Removes redundant information
-4. Keeps the summary concise (max 100 words)
+4. Keeps the summary VERY CONCISE (max 75 words)
 5. Preserves chronological flow
+6. Uses brief, direct language - avoid wordiness
 
 Output: Updated summary text only (no JSON, no extra formatting).
 """
@@ -81,11 +82,11 @@ Session Content:
 
 Your task is to provide a complete session analysis with THREE components:
 
-## 1. SESSION SUMMARY (2-4 sentences)
-Capture the main discussion points, key decisions, recommendations, and any action items or next steps.
+## 1. SESSION SUMMARY (2-3 sentences, max 150 words)
+Be CONCISE. Capture only the main discussion points, key decisions, and recommendations. Avoid unnecessary details.
 
 ## 2. KEY TOPICS (3-5 topics)
-List the main topics discussed in the session. Be specific and concise (e.g., "Roth IRA contributions", "retirement planning", "risk tolerance").
+List the main topics discussed. Be specific and concise (e.g., "Roth IRA contributions", "retirement planning", "risk tolerance").
 
 ## 3. INSIGHTS (0-5 insights)
 Extract actionable insights about the user in these categories:
@@ -96,7 +97,7 @@ Extract actionable insights about the user in these categories:
 - **learning_progress**: What they've learned, areas of growth, understanding development
 
 For each insight provide:
-- insight_text: Clear, specific, actionable observation
+- insight_text: Clear, CONCISE, specific, actionable observation (1-2 sentences max)
 - category: One of the categories above
 - confidence: 0.0-1.0 (how certain you are)
 - importance: "high", "medium", or "low"
@@ -105,6 +106,7 @@ IMPORTANT:
 - Only extract meaningful, actionable insights backed by concrete evidence
 - If the session is too brief or trivial, set has_meaningful_insights to False and return empty insights array
 - Focus on quality over quantity - 2-3 strong insights are better than 5 weak ones
+- Keep all text CONCISE - avoid verbosity
 
 Return your analysis in the structured format specified.
 """
@@ -125,6 +127,7 @@ Only extract insights that are:
 1. **Actionable**: Useful for future interactions
 2. **Specific**: Backed by concrete evidence from the session
 3. **Meaningful**: Not trivial observations
+4. **CONCISE**: Each insight should be 1-2 sentences max, using brief, direct language
 
 If the session is too brief or lacks substance, set has_meaningful_insights to False.
 """

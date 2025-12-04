@@ -234,7 +234,7 @@ output AZURE_TENANT_ID string = tenant().tenantId
 output AZURE_RESOURCE_GROUP string = rg.name
 
 output AZURE_OPENAI_ENDPOINT string = openai.outputs.endpoint
-output AZURE_OPENAI_CHAT_DEPLOYMENT string = openai.outputs.chatDeploymentName
+output AZURE_OPENAI_REASONING_MODEL string = openai.outputs.chatDeploymentName
 output AZURE_OPENAI_EMB_DEPLOYMENT string = openai.outputs.embeddingDeploymentName
 output AZURE_OPENAI_PROCESSING_MODEL string = openai.outputs.processingDeploymentName
 

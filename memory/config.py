@@ -30,14 +30,15 @@ class MemoryConfig:
     # Reflection
     trigger_reflection_on_end: bool = True  # Run session reflection at end
     longterm_reflection_trigger: str = "manual"  # Manually triggered
+    longterm_synthesis_frequency: int = 5  # Synthesize long-term insights every N sessions
     min_confidence: float = 0.7  # Insight confidence threshold
     min_sessions_for_aggregation: int = 3  # Min sessions before aggregation
     
     # Azure OpenAI Deployments
     # - reasoning_model: Complex reasoning tasks (CFR agent, synthesis, complex queries)
-    #   Typically: gpt-4, gpt-4o, gpt-4-turbo
+    #   Typically: gpt-5.1, gpt-5
     # - processing_model: Fast operations (metadata extraction, summaries, structured output)
-    #   Typically: gpt-4o-mini, gpt-35-turbo
+    #   Typically: gpt-5-chat, gpt-5-nano
     reasoning_model: Optional[str] = None
     processing_model: Optional[str] = None
     embedding_model: str = "text-embedding-ada-002"
@@ -117,3 +118,7 @@ class MemoryConfig:
     @property
     def INSIGHT_CATEGORIES(self) -> List[str]:
         return self.insight_categories
+    
+    @property
+    def LONGTERM_SYNTHESIS_FREQUENCY(self) -> int:
+        return self.longterm_synthesis_frequency

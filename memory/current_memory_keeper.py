@@ -94,45 +94,33 @@ class CurrentMemoryKeeper:
         # Track if session has started
         self.session_started = False
     
-    async def initialize_session_context(self) -> SessionInitContext:
+    async def initialize_session_context(self, reflection_process=None) -> SessionInitContext:
         """
         Load session initialization context at session start.
         
         Retrieves:
-        1. Long-term insight for the user
+        1. Long-term insight for the user (if reflection_process provided)
         2. Recent session summaries (last N sessions)
+        
+        Args:
+            reflection_process: Optional ReflectionProcess instance for fetching long-term insights
         
         Returns:
             SessionInitContext with insights and recent summaries
         """
         print(f"[MemoryKeeper] Initializing session context for user: {self.user_id}")
         
-        # Query recent insights (get top 3 most recent/important insights)
-        insights_text = ""
-        query = f"""
-        SELECT TOP 3 c.insight_text, c.category, c.confidence, c.extracted_at
-        FROM c
-        WHERE c.user_id = @user_id
-        ORDER BY c.extracted_at DESC
-        """
-        parameters = [{"name": "@user_id", "value": self.user_id}]
-        
-        results = self.cosmos_utils.query_documents(
-            container=self.insights_container,
-            query=query,
-            parameters=parameters
-        )
-        
+        # Fetch long-term insight if reflection process is available
         longterm_insight = None
-        if results:
-            insights_list = [f"- {r['insight_text']}" for r in results]
-            insights_text = "\n".join(insights_list)
-            longterm_insight = insights_text
-            print(f"  ✓ Loaded {len(results)} recent insights")
-            for idx, insight in enumerate(results, 1):
-                print(f"     {idx}. [{insight.get('category', 'N/A')}] {insight['insight_text'][:80]}...")
+        if reflection_process:
+            longterm_insight = await reflection_process.get_longterm_insight(self.user_id)
+            if longterm_insight:
+                print(f"  ✓ Loaded long-term insight profile ({len(longterm_insight)} chars)")
+                print(f"     Preview: {longterm_insight[:150]}...")
+            else:
+                print(f"  ℹ No long-term insight found for user (will be created after sufficient sessions)")
         else:
-            print(f"  ℹ No insights found for user")
+            print(f"  ℹ Reflection process not provided, skipping long-term insight fetch")
         
         # Query recent session summaries
         query = f"""
@@ -142,6 +130,7 @@ class CurrentMemoryKeeper:
         WHERE c.user_id = @user_id AND c.status = 'completed'
         ORDER BY c.end_time DESC
         """
+        parameters = [{"name": "@user_id", "value": self.user_id}]
         
         results = self.cosmos_utils.query_documents(
             container=self.summaries_container,

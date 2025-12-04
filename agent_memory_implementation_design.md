@@ -435,7 +435,7 @@ Runs at the end of each session (or on-demand for pending sessions).
 
 **Process:**
 1. Retrieve all interactions for the session(s)
-2. Call LLM (using `AZURE_OPENAI_CHAT_DEPLOYMENT`) with extraction prompt
+2. Call LLM (using `AZURE_OPENAI_REASONING_MODEL`) with extraction prompt
 3. LLM outputs:
    - `reflection_flag`: "insight" or "no-insight"
    - If "insight": array of insights with category, importance, confidence

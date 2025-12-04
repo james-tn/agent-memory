@@ -200,7 +200,7 @@ class MemoryServiceOrchestrator:
         self.memory_keeper.turn_buffer = restored_turns[-self.config.K_TURN_BUFFER:]
         
         # Load standard session init context (insights + recent summaries)
-        session_init_context = await self.memory_keeper.initialize_session_context()
+        session_init_context = await self.memory_keeper.initialize_session_context(self.reflection)
         
         print(f"  ✓ Session restored")
         print(f"    - Cumulative summary: {len(cumulative_summary)} chars")
@@ -250,7 +250,7 @@ class MemoryServiceOrchestrator:
         )
         
         # Use Current Memory Keeper to initialize
-        session_init_context = await self.memory_keeper.initialize_session_context()
+        session_init_context = await self.memory_keeper.initialize_session_context(self.reflection)
         
         # Convert to dict format for API
         initial_context = {
@@ -449,11 +449,13 @@ class MemoryServiceOrchestrator:
                     "id": insight["id"],
                     "user_id": self.user_id,
                     "session_id": self.session_id,
+                    "insight_type": "session",  # Mark as session-level insight
                     "insight_text": insight["insight_text"],
                     "insight_vector": insight_embedding,
                     "category": insight["category"],
                     "confidence": insight["confidence"],
                     "importance": insight["importance"],
+                    "processed": False,  # Not yet incorporated into long-term insight
                     "extracted_at": insight["extracted_at"],
                     "evidence": {
                         "session_summary": analysis["session_summary"],
@@ -470,6 +472,10 @@ class MemoryServiceOrchestrator:
             insights_duration = time.time() - insights_start
             print(f"  ⏱ Store insights: {insights_duration:.2f}s")
             print(f"    ✓ Stored {len(analysis['insights'])} insights to CosmosDB")
+        
+        # Check if it's time to update long-term insights (every N sessions)
+        sessions_per_synthesis = getattr(self.config, 'LONGTERM_SYNTHESIS_FREQUENCY', 5)
+        await self._check_longterm_synthesis_trigger(sessions_per_synthesis)
         
         result = {
             "session_id": self.session_id,
@@ -576,3 +582,48 @@ class MemoryServiceOrchestrator:
                 "reflection": "active"
             }
         }
+    
+    async def _check_longterm_synthesis_trigger(self, frequency: int) -> None:
+        """
+        Check if it's time to trigger long-term insight synthesis.
+        
+        Triggers synthesis every N completed sessions for the user.
+        
+        Args:
+            frequency: Number of sessions between synthesis updates (e.g., 5)
+        """
+        # Count completed sessions for this user
+        query = """
+        SELECT VALUE COUNT(1)
+        FROM c
+        WHERE c.user_id = @user_id AND c.status = 'completed'
+        """
+        parameters = [{"name": "@user_id", "value": self.user_id}]
+        
+        try:
+            results = list(self.summaries_container.query_items(
+                query=query,
+                parameters=parameters,
+                enable_cross_partition_query=False
+            ))
+            
+            session_count = results[0] if results else 0
+            
+            print(f"[LongTerm] User has {session_count} completed sessions (trigger every {frequency})")
+            
+            # Trigger synthesis if we've hit the frequency
+            if session_count > 0 and session_count % frequency == 0:
+                print(f"[LongTerm] 🔄 Triggering long-term insight synthesis (session #{session_count})")
+                synthesis_result = await self.reflection.update_longterm_insight(self.user_id)
+                
+                if synthesis_result:
+                    print(f"[LongTerm] ✅ Long-term synthesis complete!")
+                else:
+                    print(f"[LongTerm] ℹ Synthesis skipped (insufficient data)")
+            else:
+                remaining = frequency - (session_count % frequency)
+                print(f"[LongTerm] ℹ Next synthesis in {remaining} sessions")
+        
+        except Exception as e:
+            print(f"[LongTerm] ⚠ Error checking synthesis trigger: {e}")
+

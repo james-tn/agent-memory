@@ -12,7 +12,7 @@ import asyncio
 from contextlib import asynccontextmanager
 from typing import Optional, List, Dict, Any
 
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, HTTPException, status, BackgroundTasks
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from openai import AzureOpenAI, OpenAI
@@ -33,6 +33,7 @@ logger = logging.getLogger(__name__)
 # Global resources (shared across all sessions)
 session_pool: Optional[SessionPool] = None
 background_tasks_running = False
+ending_sessions: Dict[str, Dict[str, Any]] = {}  # Track sessions ending in background: {session_id: {status, start_time, user_id}}
 
 
 @asynccontextmanager
@@ -54,7 +55,7 @@ async def lifespan(app: FastAPI):
         base_url=server_config.azure_openai_endpoint_v1,
         api_key=server_config.azure_openai_api_key,
     )
-    logger.info(f"✓ Azure OpenAI client initialized: {server_config.azure_openai_chat_deployment}")
+    logger.info(f"✓ Azure OpenAI client initialized: {server_config.azure_openai_reasoning_model}")
     
     # Initialize Cosmos DB client (shared)
     # Try authentication methods in order: Key -> Service Principal -> Managed Identity
@@ -117,7 +118,9 @@ async def lifespan(app: FastAPI):
         interactions_container=server_config.cosmos_interactions_container,
         summaries_container=server_config.cosmos_summaries_container,
         insights_container=server_config.cosmos_insights_container,
-        processing_model=server_config.azure_openai_processing_model
+        reasoning_model=server_config.azure_openai_reasoning_model,
+        processing_model=server_config.azure_openai_processing_model,
+        longterm_synthesis_frequency=server_config.longterm_synthesis_frequency
     )
     
     # Initialize session pool
@@ -322,14 +325,19 @@ async def start_session(request: SessionStartRequest):
 
 
 @app.post("/sessions/end")
-async def end_session(request: SessionEndRequest):
+async def end_session(request: SessionEndRequest, background_tasks: BackgroundTasks):
     """
-    End a session and trigger reflection.
+    End a session and trigger reflection in background.
     
     This:
-    1. Triggers final reflection process
-    2. Persists session state to CosmosDB
-    3. Removes session from pool
+    1. Triggers final reflection process (in background)
+    2. Persists session state to CosmosDB (in background)
+    3. Removes session from pool (in background)
+    4. Returns immediately without waiting for synthesis
+    
+    Note: Long-term insight synthesis can take 30+ seconds, so we run it in background
+    to avoid client timeouts. The session is still fully persisted and reflected.
+    Use GET /sessions/status?session_id=... to check if background processing is complete.
     """
     if not session_pool:
         raise HTTPException(status_code=503, detail="Session pool not initialized")
@@ -342,33 +350,92 @@ async def end_session(request: SessionEndRequest):
             restore=False  # Don't restore, we're ending it
         )
         
-        # End session (triggers reflection)
         orchestrator = session_state.orchestrator
         
         # Get turn count before ending
         turns_count = len(orchestrator.memory_keeper.turn_buffer)
         
-        # End session
-        summary_result = await orchestrator.end_session()
+        # Track that this session is ending in background
+        from datetime import datetime
+        ending_sessions[request.session_id] = {
+            "status": "processing",
+            "start_time": datetime.utcnow().isoformat(),
+            "user_id": request.user_id
+        }
         
-        # Remove from pool (no persistence needed - session just ended with full summary)
-        await session_pool.remove(
-            user_id=request.user_id,
-            session_id=request.session_id,
-            persist=False  # Session already fully persisted by end_session()
-        )
+        # Define background task to end session
+        async def _end_session_background():
+            """Background task to end session with full reflection and synthesis."""
+            try:
+                logger.info(f"[Background] Ending session {request.session_id} for user {request.user_id}")
+                summary_result = await orchestrator.end_session()
+                
+                # Remove from pool (no persistence needed - session just ended with full summary)
+                await session_pool.remove(
+                    user_id=request.user_id,
+                    session_id=request.session_id,
+                    persist=False  # Session already fully persisted by end_session()
+                )
+                
+                # Update status to complete
+                ending_sessions[request.session_id] = {
+                    "status": "complete",
+                    "end_time": datetime.utcnow().isoformat(),
+                    "user_id": request.user_id,
+                    "insights_count": len(summary_result.get('insights', [])) if summary_result else 0
+                }
+                
+                logger.info(
+                    f"[Background] ✓ Session {request.session_id} ended. "
+                    f"Insights: {len(summary_result.get('insights', [])) if summary_result else 0}"
+                )
+            except Exception as e:
+                # Update status to error
+                ending_sessions[request.session_id] = {
+                    "status": "error",
+                    "error": str(e),
+                    "end_time": datetime.utcnow().isoformat(),
+                    "user_id": request.user_id
+                }
+                logger.error(f"[Background] Error ending session {request.session_id}: {e}", exc_info=True)
         
+        # Add to background tasks
+        background_tasks.add_task(_end_session_background)
+        
+        # Return immediately
         return {
-            "status": "success",
-            "message": f"Session {request.session_id} ended and reflected",
-            "summary_generated": summary_result is not None,
-            "insights_count": len(summary_result.get("insights", [])) if summary_result else 0,
-            "turns_count": turns_count
+            "status": "ending",
+            "message": f"Session {request.session_id} ending in background (reflection and synthesis may take 30+ seconds)",
+            "turns_count": turns_count,
+            "session_id": request.session_id,
+            "user_id": request.user_id,
+            "check_status_url": f"/sessions/status?session_id={request.session_id}"
         }
     
     except Exception as e:
-        logger.error(f"Error ending session: {e}", exc_info=True)
+        logger.error(f"Error initiating session end: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/sessions/status")
+async def get_session_status(session_id: str):
+    """
+    Check the status of a session ending in background.
+    
+    Returns:
+        - status: "processing" | "complete" | "error" | "not_found"
+        - Additional info about timing and results
+    
+    Use this to poll after calling POST /sessions/end to know when
+    long-term synthesis has completed.
+    """
+    if session_id in ending_sessions:
+        return ending_sessions[session_id]
+    else:
+        return {
+            "status": "not_found",
+            "message": f"Session {session_id} not found in background processing queue. It may have already completed and been cleaned up, or never started."
+        }
 
 
 # ============================================================================
@@ -554,6 +621,84 @@ async def retrieve_facts(request: RetrieveFactsRequest):
 # ============================================================================
 # Insights & Summaries
 # ============================================================================
+
+@app.get("/memory/insights")
+async def get_insights_get(user_id: str, session_id: str = None, recent_only: bool = False):
+    """
+    Get user insights (long-term learnings about the user) via GET.
+    
+    Args:
+        user_id: User identifier
+        session_id: Optional session_id to filter insights to a specific session
+        recent_only: If True, only return insights from recent sessions
+    """
+    if not session_pool:
+        raise HTTPException(status_code=503, detail="Session pool not initialized")
+    
+    try:
+        # We need a temporary orchestrator to access insights
+        # (insights are user-level, not session-specific)
+        import uuid
+        temp_session_id = str(uuid.uuid4())
+        
+        session_state = await session_pool.get_or_create(
+            user_id=user_id,
+            session_id=temp_session_id,
+            restore=False
+        )
+        
+        orchestrator = session_state.orchestrator
+        
+        # Query insights
+        query = """
+        SELECT * FROM c 
+        WHERE c.user_id = @user_id
+        ORDER BY c.timestamp DESC
+        """
+        
+        parameters = [{"name": "@user_id", "value": user_id}]
+        
+        if session_id:
+            query = query.replace(
+                "ORDER BY",
+                "AND c.session_id = @session_id ORDER BY"
+            )
+            parameters.append({"name": "@session_id", "value": session_id})
+        
+        if recent_only:
+            query = query.replace(
+                "ORDER BY",
+                "AND c.timestamp > @cutoff ORDER BY"
+            )
+            from datetime import datetime, timedelta
+            cutoff = (datetime.utcnow() - timedelta(days=30)).isoformat()
+            parameters.append({"name": "@cutoff", "value": cutoff})
+        
+        insights = orchestrator.cosmos_utils.query_documents(
+            container=orchestrator.insights_container,
+            query=query,
+            parameters=parameters
+        )
+        
+        # Clean up temporary session
+        await session_pool.remove(user_id, temp_session_id, persist=False)
+        
+        return [
+            {
+                "content": insight.get("content") or insight.get("insight_text", ""),
+                "timestamp": insight.get("timestamp", ""),
+                "session_id": insight.get("session_id", ""),
+                "insight_type": insight.get("insight_type", "session"),
+                "confidence": insight.get("confidence"),
+                "category": insight.get("category")
+            }
+            for insight in insights
+        ]
+        
+    except Exception as e:
+        logger.error(f"Error getting insights: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.post("/insights")
 async def get_insights(request: GetInsightsRequest):

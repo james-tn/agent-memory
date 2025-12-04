@@ -45,6 +45,14 @@ class LongTermSynthesisOutput(BaseModel):
     source_count: int = Field(description="Number of source insights used in synthesis")
 
 
+class LongTermProfileOutput(BaseModel):
+    """Structured output for comprehensive long-term user profile."""
+    profile_text: str = Field(description="Comprehensive narrative profile of the user organized by categories")
+    categories_covered: List[str] = Field(description="List of categories included in the profile")
+    confidence: float = Field(description="Overall confidence score 0.0-1.0", ge=0.0, le=1.0)
+    insight_count: int = Field(description="Number of session insights synthesized into this profile")
+
+
 class ReflectionProcess:
     """
     Reflection Process for extracting insights from sessions and synthesizing long-term patterns.
@@ -453,3 +461,268 @@ class ReflectionProcess:
         
         self.insights_container.create_item(body=insight_doc)
         return insight_doc
+    
+    async def update_longterm_insight(self, user_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Update long-term insight by synthesizing all unprocessed session insights.
+        
+        This is the main synthesis function that:
+        1. Fetches all unprocessed session insights for the user
+        2. Groups insights by category
+        3. Synthesizes into a comprehensive structured profile
+        4. Upserts single longterm-{user_id} document
+        5. Marks session insights as processed=True
+        
+        Args:
+            user_id: User identifier
+            
+        Returns:
+            Long-term insight document if synthesis succeeded, None otherwise
+        """
+        print(f"[LongTerm] Starting long-term insight synthesis for user: {user_id}")
+        
+        # 1. Fetch all unprocessed session insights
+        unprocessed_insights = await self._get_unprocessed_insights(user_id)
+        
+        if not unprocessed_insights:
+            print(f"  ℹ No unprocessed insights found for synthesis")
+            return None
+        
+        print(f"  ✓ Found {len(unprocessed_insights)} unprocessed session insights")
+        
+        # 2. Group by category
+        insights_by_category = {}
+        for insight in unprocessed_insights:
+            category = insight.get("category", "general")
+            if category not in insights_by_category:
+                insights_by_category[category] = []
+            insights_by_category[category].append(insight)
+        
+        print(f"  ✓ Grouped into {len(insights_by_category)} categories: {list(insights_by_category.keys())}")
+        
+        # 3. Synthesize into structured profile
+        profile_output = await self._synthesize_longterm_profile(user_id, insights_by_category)
+        
+        if not profile_output:
+            print(f"  ℹ No profile generated from synthesis")
+            return None
+        
+        # 4. Upsert longterm-{user_id} document
+        longterm_doc = await self._upsert_longterm_document(
+            user_id,
+            profile_output,
+            [insight["id"] for insight in unprocessed_insights]
+        )
+        
+        # 5. Mark session insights as processed
+        await self._mark_insights_processed(user_id, [insight["id"] for insight in unprocessed_insights])
+        
+        print(f"  ✓ Long-term insight synthesis complete. Confidence: {profile_output.confidence:.2f}")
+        return longterm_doc
+    
+    async def get_longterm_insight(self, user_id: str) -> Optional[str]:
+        """
+        Retrieve the long-term insight profile text for a user.
+        
+        Simple fetch of longterm-{user_id} document that returns
+        formatted profile text for injection into session context.
+        
+        Args:
+            user_id: User identifier
+            
+        Returns:
+            Formatted profile text, or None if no long-term insight exists
+        """
+        longterm_id = f"longterm-{user_id}"
+        
+        try:
+            doc = self.insights_container.read_item(
+                item=longterm_id,
+                partition_key=user_id
+            )
+            return doc.get("insight_text", "")
+        except Exception as e:
+            # Document doesn't exist yet - this is normal for new users or before first synthesis
+            error_msg = str(e)
+            if "NotFound" in error_msg or "does not exist" in error_msg:
+                # Expected case - no long-term insight created yet
+                return None
+            else:
+                # Unexpected error
+                print(f"  ⚠ Error fetching long-term insight for user {user_id}: {e}")
+                return None
+    
+    async def _get_unprocessed_insights(self, user_id: str) -> List[Dict]:
+        """Fetch all unprocessed session insights for a user."""
+        query = """
+        SELECT * FROM c
+        WHERE c.user_id = @user_id
+          AND c.insight_type = 'session'
+          AND (NOT IS_DEFINED(c.processed) OR c.processed = false)
+        ORDER BY c.created_at ASC
+        """
+        parameters = [{"name": "@user_id", "value": user_id}]
+        
+        try:
+            results = list(self.insights_container.query_items(
+                query=query,
+                parameters=parameters,
+                enable_cross_partition_query=False
+            ))
+            return results
+        except Exception as e:
+            print(f"  Error querying unprocessed insights: {e}")
+            return []
+    
+    async def _synthesize_longterm_profile(
+        self,
+        user_id: str,
+        insights_by_category: Dict[str, List[Dict]]
+    ) -> Optional[LongTermProfileOutput]:
+        """Synthesize all insights into a comprehensive user profile (incremental update)."""
+        
+        # Fetch existing long-term profile if it exists
+        existing_profile = await self.get_longterm_insight(user_id)
+        
+        # Build context for synthesis
+        context_parts = []
+        total_insights = 0
+        
+        for category, insights in insights_by_category.items():
+            context_parts.append(f"\n{category.upper()}:")
+            for insight in insights:
+                context_parts.append(f"- {insight.get('insight_text', '')} (confidence: {insight.get('confidence', 0):.2f})")
+                total_insights += 1
+        
+        new_insights_context = "\n".join(context_parts)
+        
+        # Build prompt based on whether existing profile exists
+        if existing_profile:
+            # Incremental update: incorporate new insights into existing profile
+            prompt = f"""You are updating an existing long-term user profile with new insights from recent sessions.
+
+User ID: {user_id}
+
+EXISTING USER PROFILE:
+{existing_profile}
+
+NEW SESSION INSIGHTS (to be incorporated):
+{new_insights_context}
+
+Task: Update the user profile by:
+1. Integrating new insights into the existing profile
+2. Identifying evolving patterns and changes over time
+3. Updating or refining existing information with new data
+4. Maintaining the structured, category-based format
+5. Removing outdated or contradicted information (preferring higher confidence and more recent insights)
+6. Highlighting any significant changes or new learnings
+
+IMPORTANT: Keep the profile CONCISE and focused. Use brief, direct language. Organize into clear categories with 1-2 sentences each. Avoid verbose descriptions - capture only the essential, actionable information.
+
+The updated profile should build upon the existing knowledge while incorporating new learnings, showing the evolution of our understanding of this user.
+"""
+        else:
+            # First-time synthesis: create profile from scratch
+            prompt = f"""You are creating an initial long-term user profile from session insights.
+
+User ID: {user_id}
+
+SESSION INSIGHTS (grouped by category):
+{new_insights_context}
+
+Task: Create a cohesive narrative profile that:
+1. Synthesizes insights within each category into clear statements
+2. Identifies patterns and trends across sessions
+3. Presents information in a structured, easy-to-read format
+4. Removes redundancies and conflicting information (preferring higher confidence insights)
+5. Organizes by categories for easy reference
+
+IMPORTANT: Keep the profile CONCISE. Use brief, direct language. Each category should be 1-2 sentences capturing the essential information only. Avoid verbose descriptions and unnecessary details.
+
+The profile should be comprehensive but concise, focusing on actionable information that helps provide personalized assistance to this user.
+"""
+        
+        try:
+            response = self.chat_client.beta.chat.completions.parse(
+                model=self.config.PROCESSING_MODEL,
+                messages=[
+                    {"role": "system", "content": "You are an expert at synthesizing user insights into comprehensive profiles."},
+                    {"role": "user", "content": prompt}
+                ],
+                response_format=LongTermProfileOutput,
+            )
+            
+            return response.choices[0].message.parsed
+        except Exception as e:
+            print(f"  Error during profile synthesis: {e}")
+            return None
+    
+    async def _upsert_longterm_document(
+        self,
+        user_id: str,
+        profile_output: LongTermProfileOutput,
+        source_insight_ids: List[str]
+    ) -> Dict[str, Any]:
+        """Upsert the long-term insight document for a user."""
+        longterm_id = f"longterm-{user_id}"
+        
+        # Generate embedding for the profile text
+        embedding = self.cosmos_utils.get_embedding(profile_output.profile_text)
+        
+        # Check if document already exists
+        try:
+            existing_doc = self.insights_container.read_item(
+                item=longterm_id,
+                partition_key=user_id
+            )
+            # Update existing document
+            existing_doc["insight_text"] = profile_output.profile_text
+            existing_doc["insight_vector"] = embedding
+            existing_doc["confidence"] = profile_output.confidence
+            existing_doc["source_insight_ids"] = list(set(
+                existing_doc.get("source_insight_ids", []) + source_insight_ids
+            ))
+            existing_doc["updated_at"] = datetime.utcnow().isoformat()
+            
+            self.insights_container.replace_item(
+                item=longterm_id,
+                body=existing_doc
+            )
+            print(f"  ✓ Updated existing long-term insight document")
+            return existing_doc
+        except Exception:
+            # Create new document
+            longterm_doc = {
+                "id": longterm_id,
+                "user_id": user_id,
+                "insight_type": "long_term",
+                "insight_text": profile_output.profile_text,
+                "insight_vector": embedding,
+                "confidence": profile_output.confidence,
+                "source_insight_ids": source_insight_ids,
+                "created_at": datetime.utcnow().isoformat(),
+                "updated_at": datetime.utcnow().isoformat()
+            }
+            
+            self.insights_container.create_item(body=longterm_doc)
+            print(f"  ✓ Created new long-term insight document")
+            return longterm_doc
+    
+    async def _mark_insights_processed(self, user_id: str, insight_ids: List[str]) -> None:
+        """Mark session insights as processed after synthesis."""
+        for insight_id in insight_ids:
+            try:
+                insight_doc = self.insights_container.read_item(
+                    item=insight_id,
+                    partition_key=user_id
+                )
+                insight_doc["processed"] = True
+                insight_doc["updated_at"] = datetime.utcnow().isoformat()
+                
+                self.insights_container.replace_item(
+                    item=insight_id,
+                    body=insight_doc
+                )
+            except Exception as e:
+                print(f"  Warning: Could not mark insight {insight_id} as processed: {e}")
+

@@ -133,7 +133,7 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
               secretRef: 'openai-key'
             }
             {
-              name: 'AZURE_OPENAI_CHAT_DEPLOYMENT'
+              name: 'AZURE_OPENAI_REASONING_MODEL'
               value: azureOpenAIChatDeploymentName
             }
             {

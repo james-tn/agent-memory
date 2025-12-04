@@ -36,7 +36,7 @@ class Agent(BaseAgent):
         if not all([self.azure_openai_key, self.azure_deployment, self.azure_openai_endpoint, self.api_version]):
             raise RuntimeError(
                 "Azure OpenAI configuration is incomplete. Ensure AZURE_OPENAI_API_KEY, "
-                "AZURE_OPENAI_CHAT_DEPLOYMENT, AZURE_OPENAI_ENDPOINT, and AZURE_OPENAI_API_VERSION are set."
+                "AZURE_OPENAI_REASONING_MODEL, AZURE_OPENAI_ENDPOINT, and AZURE_OPENAI_API_VERSION are set."
             )
 
         headers = self._build_headers()

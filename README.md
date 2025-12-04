@@ -101,6 +101,10 @@ Traditional AI agents are stateless - they forget everything between sessions. T
 4. **Long-term Insights (Persistent Knowledge)**
    - User profile, preferences, patterns, goals
    - Extracted via LLM-powered reflection at session end
+   - **Two-layer synthesis**: Session insights → Long-term consolidated profile
+   - Automatically synthesized every N sessions (default: 5)
+   - Single `longterm-{user_id}` document per user
+   - Loaded automatically at session start
    - Evolves over time with new interactions
    - Categorized: goals, preferences, knowledge_level, behavior_patterns, learning_progress
 
@@ -157,31 +161,59 @@ This creates three containers:
 Create a `.env` file in the root directory:
 
 ```bash
-# Azure CosmosDB
+# ============================================================================
+# Server Settings
+# ============================================================================
+HOST=0.0.0.0
+PORT=8000
+RELOAD=false  # Set to true for development (auto-reload on code changes)
+
+# ============================================================================
+# Session Pool Settings
+# ============================================================================
+MAX_SESSIONS=1000  # Maximum sessions to keep in memory
+SESSION_TTL_MINUTES=30  # Minutes before session is eligible for eviction
+EVICTION_INTERVAL_SECONDS=60  # How often to check for stale sessions
+
+# ============================================================================
+# Azure OpenAI Settings
+# ============================================================================
+AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com/
+AZURE_OPENAI_API_KEY=your_api_key_here
+
+# Model Deployments
+AZURE_OPENAI_REASONING_MODEL=gpt-4o  # Main chat model for reasoning and conversation
+AZURE_OPENAI_PROCESSING_MODEL=gpt-4o-mini  # Model for summarization and processing
+AZURE_OPENAI_EMB_DEPLOYMENT=text-embedding-3-large  # Embeddings model for semantic search
+
+# ============================================================================
+# Azure Cosmos DB
+# ============================================================================
 COSMOS_ENDPOINT=https://your-account.documents.azure.com:443/
-COSMOS_DATABASE=agent_memory_db
-COSMOS_KEY=your-key  # Optional if using AAD
+COSMOS_KEY=your_cosmos_key_here  # Optional if using AAD authentication
+COSMOS_DB_NAME=agent_memory_db
+COSMOS_INTERACTIONS_CONTAINER=interactions
+COSMOS_SUMMARIES_CONTAINER=session_summaries
+COSMOS_INSIGHTS_CONTAINER=insights
 
 # AAD Authentication (if not using COSMOS_KEY)
 AAD_TENANT_ID=your-tenant-id
 AAD_CLIENT_ID=your-client-id
 AAD_CLIENT_SECRET=your-client-secret
 
-# Azure OpenAI
-AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com/
-AZURE_OPENAI_API_KEY=your-api-key
-AZURE_OPENAI_CHAT_DEPLOYMENT=gpt-5-nano
-AZURE_OPENAI_EMB_DEPLOYMENT=text-embedding-ada-002
+# ============================================================================
+# Memory Service Settings
+# ============================================================================
+K_TURN_BUFFER=5  # Number of recent turns to keep in active memory
+L_TURN_CHUNKS=10  # Number of turns per interaction chunk
+M_SESSIONS_RECENT=5  # Number of recent sessions to include in context
+REFLECTION_THRESHOLD_TURNS=15  # Minimum turns before triggering reflection
+LONGTERM_SYNTHESIS_FREQUENCY=5  # Synthesize long-term insights every N sessions
 
-# Memory Configuration (optional - defaults shown)
-K_TURN_BUFFER=5              # Turns before pruning
-M_SESSIONS_RECENT=3          # Recent sessions to load at init
-ENABLE_REFLECTION=true       # Enable insight extraction
-
-# Service Configuration (optional)
-MAX_SESSIONS=1000            # Session pool size
-SESSION_TTL_MINUTES=30       # Session cache TTL
-EVICTION_INTERVAL_SECONDS=60 # Background cleanup interval
+# ============================================================================
+# Memory Service URL (for clients)
+# ============================================================================
+MEMORY_SERVICE_URL=http://localhost:8000
 ```
 
 ### Start the Service
@@ -812,7 +844,7 @@ AAD_CLIENT_SECRET=your-client-secret
 # Azure OpenAI
 AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com/
 AZURE_OPENAI_API_KEY=your-api-key
-AZURE_OPENAI_CHAT_DEPLOYMENT=gpt-5-nano
+AZURE_OPENAI_REASONING_MODEL=gpt-5-nano
 AZURE_OPENAI_EMB_DEPLOYMENT=text-embedding-ada-002
 
 # Memory Settings
@@ -1201,57 +1233,44 @@ curl http://localhost:8000/stats
 
 ## 🚧 Roadmap & Future Features
 
-The following features are planned but not yet implemented. See [agent_memory_implementation_design.md](agent_memory_implementation_design.md) for detailed specifications.
+The following features are in various stages of completion. See [agent_memory_implementation_design.md](agent_memory_implementation_design.md) for detailed specifications.
+
+### ✅ Completed Features
+
+#### 1. Long-term Insight Synthesis
+**Status:** 🟢 Implemented
+
+Two-layer reflection system for consolidated user profiles:
+- **Session insights**: Extracted at session end from conversation
+- **Long-term synthesis**: Consolidated profile synthesized every N sessions (default: 5)
+- **Processing state tracking**: Session insights marked as `processed=true` after synthesis
+- **Automatic trigger**: Runs automatically when session count threshold reached
+- **Single profile document**: `longterm-{user_id}` document with structured categories
+- **LLM-powered consolidation**: Combines related insights, resolves conflicts, deduplicates
+- **Session initialization**: Long-term profile automatically loaded at session start
+
+**Benefits:**
+- ✅ Reduces token costs (load one profile vs. N insights)
+- ✅ Creates coherent narrative vs. bullet list
+- ✅ Evolves profile over time
+- ✅ Prevents unbounded growth
+- ✅ Automatic lifecycle management
 
 ### 🎯 Planned Features
 
-#### 1. Long-term Insight Synthesis
-**Status:** 🟡 Partially Implemented (foundation exists in `reflection.py`)
+#### 1. CFR (Contextual Fact Retrieval) Agent Enhancement
+**Status:** 🟡 Basic Implementation (hybrid search operational)
 
-Currently, insights accumulate as separate documents. The design includes:
-- **Two-layer reflection**: Session insights → Long-term synthesis
-- **Consolidated user profile**: Single comprehensive document per user
-- **Processing state tracking**: Mark insights as `processed=true` after synthesis
-- **Manual trigger endpoint**: `POST /users/{user_id}/synthesize`
-- **LLM-powered consolidation**: Combine related insights, resolve conflicts, deduplicate
+Current: Basic semantic search with hybrid (vector + full-text) retrieval
+Planned: Dedicated mini-agent for intelligent memory retrieval
 
-**Benefits:**
-- Reduces token costs (load one profile vs. N insights)
-- Creates coherent narrative vs. bullet list
-- Evolves profile over time
-- Prevents unbounded growth
+Enhancements planned:
+- **Dedicated reasoning agent** with specialized tools
+- **Query strategy optimization**: Agent decides which sources to search
+- **Multi-hop reasoning**: Follow-up searches based on initial results
+- **Result synthesis**: More sophisticated fact combination
 
-**Implementation needed:**
-- Add `processed` field to insight documents
-- Implement synthesis API endpoint
-- Create synthesis prompt for LLM
-- Mark source insights as processed
-
-#### 2. CFR (Contextual Fact Retrieval) Agent
-**Status:** 🔴 Not Implemented
-
-Planned mini-agent for intelligent memory retrieval:
-- **Dedicated gpt-5-nanoo-mini agent** with tools:
-  - `search_interactions`: Semantic search across conversations
-  - `search_insights`: Query user insights
-  - `search_summaries`: Find relevant session summaries
-- **Query strategy optimization**: Agent decides which tools to use
-- **Result synthesis**: Combines results from multiple sources
-- **Tool for main agent**: `retrieve_user_facts(query: str) -> str`
-
-**Benefits:**
-- More intelligent retrieval than simple semantic search
-- Multi-source fact compilation
-- Query reformulation and expansion
-- Lower cost (mini model for retrieval)
-
-**Implementation needed:**
-- Create CFR agent with Agent Framework
-- Implement tool functions for each search type
-- Add to main agent's toolset
-- Test retrieval quality
-
-#### 3. "No-insight" Session Aggregation
+#### 2. "No-insight" Session Aggregation
 **Status:** 🔴 Not Implemented
 
 Handle trivial sessions that don't generate individual insights:
@@ -1260,21 +1279,7 @@ Handle trivial sessions that don't generate individual insights:
 - Extract patterns across trivial interactions
 - Prevent loss of incremental learning
 
-**Benefits:**
-- Captures gradual behavioral changes
-- Better for casual/social conversations
-- Reduces false negatives in insight extraction
-
-#### 4. Vector Search Optimization
-**Status:** 🟡 Basic Implementation
-
-Enhance retrieval with:
-- Hybrid search (vector + full-text)
-- Query embedding caching
-- Multi-field vector search (content + summary)
-- Relevance scoring improvements
-
-#### 5. Advanced Session Management
+#### 3. Advanced Session Management
 **Status:** 🔴 Not Implemented
 
 - Auto-session recovery after crashes
@@ -1282,7 +1287,7 @@ Enhance retrieval with:
 - Session branching for "what-if" scenarios
 - Session replay for debugging
 
-#### 6. Observability & Analytics
+#### 4. Enhanced Observability & Analytics
 **Status:** 🟡 Basic Health Checks
 
 Planned enhancements:

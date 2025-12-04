@@ -1,7 +1,8 @@
 """
-Advanced Interactive Demo - Integrated with Real Memory Service
+Advanced Interactive Demo - Using Remote Memory Service Server
 
-This version actually runs the memory service and shows real-time updates with hybrid search.
+This version connects to the REST API server instead of using embedded orchestrator.
+Demonstrates real-time memory updates through API endpoints.
 """
 
 import streamlit as st
@@ -11,60 +12,24 @@ import os
 from pathlib import Path
 from datetime import datetime
 import json
-from dotenv import load_dotenv
+import httpx
+from typing import Optional, Dict, Any
 
-# Resolve repo root for imports and env loading
+# Resolve repo root for imports
 BASE_DIR = Path(__file__).resolve().parent.parent
-
-# Load environment variables from root .env and azd environment if present
-dotenv_candidates = [BASE_DIR / '.env']
-azure_env_dir = BASE_DIR / '.azure'
-if azure_env_dir.exists():
-    for child in azure_env_dir.iterdir():
-        env_file = child / '.env'
-        if env_file.exists():
-            dotenv_candidates.append(env_file)
-
-for dotenv_path in dotenv_candidates:
-    if dotenv_path.exists():
-        load_dotenv(dotenv_path, override=False)
-
-# Add parent directory to path for local imports
 sys.path.insert(0, str(BASE_DIR))
-
-from memory.orchestrator import MemoryServiceOrchestrator
-from memory.config import MemoryConfig
-from memory.cosmos_utils import CosmosUtils
-from demo.setup_cosmosdb import get_cosmos_client, get_openai_client
 
 # Page config
 st.set_page_config(
-    page_title="Agent Memory Service - Live Demo",
+    page_title="Agent Memory Service - Remote Demo",
     page_icon="🧠",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-reasoning_model=os.getenv("AZURE_OPENAI_REASONING_MODEL")
-embedding_model=os.getenv("AZURE_OPENAI_EMB_DEPLOYMENT")
-processing_model=os.getenv("AZURE_OPENAI_PROCESSING_MODEL")
-cosmos_db_name=os.getenv("AZURE_COSMOS_DATABASE_NAME")
-interactions_container_name=os.getenv("AZURE_COSMOS_INTERACTIONS_CONTAINER", "interactions")
-insights_container_name=os.getenv("AZURE_COSMOS_INSIGHTS_CONTAINER", "insights")
-summaries_container_name=os.getenv("AZURE_COSMOS_SUMMARIES_CONTAINER", "session_summaries")
-print("reasoning model", reasoning_model)
-print("embedding model", embedding_model)
-print("processing model", processing_model)
-print("OpenAI URI ", os.getenv("AZURE_OPENAI_ENDPOINT"))
-print("Cosmos DB ", cosmos_db_name)
-print("Interactions container ", interactions_container_name)
-print("Insights container ", insights_container_name)
-print("Summaries container ", summaries_container_name)
-
-# Custom CSS
+# Custom CSS (same as live demo)
 st.markdown("""
 <style>
-    /* Modern gradient header */
     .main-header {
         font-size: 2.5rem;
         font-weight: 700;
@@ -74,7 +39,6 @@ st.markdown("""
         margin-bottom: 0.5rem;
     }
     
-    /* Chat messages */
     .chat-user {
         background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
         padding: 1.2rem;
@@ -106,53 +70,6 @@ st.markdown("""
         }
     }
     
-    /* Metric cards */
-    .metric-card {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        padding: 1.5rem;
-        border-radius: 12px;
-        color: white;
-        text-align: center;
-        box-shadow: 0 4px 12px rgba(102,126,234,0.3);
-    }
-    
-    .metric-value {
-        font-size: 2.5rem;
-        font-weight: 700;
-        margin: 0.5rem 0;
-    }
-    
-    .metric-label {
-        font-size: 0.9rem;
-        opacity: 0.9;
-    }
-    
-    /* Memory state cards */
-    .memory-card {
-        background: white;
-        border: 2px solid #e0e0e0;
-        border-radius: 12px;
-        padding: 1rem;
-        margin: 0.5rem 0;
-        transition: all 0.3s ease;
-    }
-    
-    .memory-card:hover {
-        border-color: #667eea;
-        box-shadow: 0 4px 12px rgba(102,126,234,0.2);
-    }
-    
-    /* Insight cards */
-    .insight-card {
-        background: linear-gradient(135deg, #fff5e1 0%, #ffe4b5 100%);
-        border-left: 4px solid #ffa726;
-        border-radius: 10px;
-        padding: 1rem;
-        margin: 0.5rem 0;
-        box-shadow: 0 2px 6px rgba(255,167,38,0.2);
-    }
-    
-    /* Status badges */
     .status-badge {
         display: inline-block;
         padding: 0.25rem 0.75rem;
@@ -167,37 +84,9 @@ st.markdown("""
         color: white;
     }
     
-    .status-processing {
-        background-color: #ff9800;
+    .status-error {
+        background-color: #f44336;
         color: white;
-    }
-    
-    .status-completed {
-        background-color: #2196f3;
-        color: white;
-    }
-    
-    /* Progress bar */
-    .stProgress > div > div > div > div {
-        background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
-    }
-    
-    /* Expander styling */
-    .streamlit-expanderHeader {
-        background-color: #f8f9fa;
-        border-radius: 8px;
-        font-weight: 600;
-    }
-    
-    /* Code blocks */
-    .memory-state-code {
-        background-color: #f5f5f5;
-        border: 1px solid #e0e0e0;
-        border-radius: 8px;
-        padding: 1rem;
-        font-family: 'Courier New', monospace;
-        font-size: 0.85rem;
-        overflow-x: auto;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -218,7 +107,7 @@ SCENARIOS = {
         ]
     },
     
-    "� Financial Advisor - Session 2": {
+    "💼 Financial Advisor - Session 2": {
         "description": "💼 Client returns. Watch memory system recall age (35), income ($95k), risk tolerance (conservative), and $500/month commitment!",
         "user_id": "client_sarah",
         "session_id": "financial_session_2",
@@ -231,7 +120,7 @@ SCENARIOS = {
         ]
     },
     
-    "�️ Shopping Assistant - Session 1": {
+    "🛍️ Shopping Assistant - Session 1": {
         "description": "🎽 Customer browses running shoes. System learns preferences: Nike, blue colors, $100-120 budget, size 10.",
         "user_id": "customer_mike",
         "session_id": "shopping_session_1",
@@ -245,7 +134,7 @@ SCENARIOS = {
         ]
     },
     
-    "🛍️ Shopping Assistant - Session 2": {
+    "🛒 Shopping Assistant - Session 2": {
         "description": "🎽 Customer returns. Agent remembers: Nike preference, blue color, $100-120 budget, size 10, bought Pegasus!",
         "user_id": "customer_mike",
         "session_id": "shopping_session_2",
@@ -259,7 +148,7 @@ SCENARIOS = {
     },
     
     "🎓 Learning Assistant - Session 1": {
-        "description": "� Student struggles with algebra. System learns: visual learner, loves basketball, struggles with word problems.",
+        "description": "📚 Student struggles with algebra. System learns: visual learner, loves basketball, struggles with word problems.",
         "user_id": "student_alex",
         "session_id": "learning_session_1",
         "agent_type": "Math Tutor",
@@ -273,7 +162,7 @@ SCENARIOS = {
         ]
     },
     
-    "🎓 Learning Assistant - Session 2": {
+    "📚 Learning Assistant - Session 2": {
         "description": "📚 Agent remembers: visual learner, basketball fan, struggles with word problems. Uses basketball context!",
         "user_id": "student_alex",
         "session_id": "learning_session_2",
@@ -301,7 +190,7 @@ SCENARIOS = {
         ]
     },
     
-    "🏥 Medical Assistant - Session 2 (LIFESAVING!)": {
+    "⚕️ Medical Assistant - Session 2 (LIFESAVING!)": {
         "description": "⚕️ Patient requests Amoxicillin. Agent searches memory, finds penicillin allergy, PREVENTS DANGEROUS PRESCRIPTION! 🚨",
         "user_id": "patient_emma",
         "session_id": "medical_session_2",
@@ -337,48 +226,87 @@ SCENARIOS = {
 }
 
 
-@st.cache_resource
-def initialize_memory_service(user_id: str, session_id: str):
-    """Initialize the memory service (cached to avoid re-initialization)"""
-    # Get clients
-    cosmos_client = get_cosmos_client()
-    chat_client = get_openai_client()
+class MemoryServiceClient:
+    """Client for interacting with Memory Service REST API"""
     
-    # Get database and containers
-    db = cosmos_client.get_database_client(cosmos_db_name)
-    interactions_container = db.get_container_client(interactions_container_name)
-    insights_container = db.get_container_client(insights_container_name)
-    summaries_container = db.get_container_client(summaries_container_name)
+    def __init__(self, base_url: str = "http://localhost:8000"):
+        self.base_url = base_url
+        self.timeout = httpx.Timeout(120.0, connect=10.0)
     
-    # Create config and cosmos utilities
-    config = MemoryConfig(
-        reasoning_model=reasoning_model,
-        embedding_model=embedding_model,
-        processing_model=processing_model,
-        database_name=cosmos_db_name,
-        interactions_container=interactions_container_name,
-        insights_container=insights_container_name,
-        summaries_container=summaries_container_name,
-        longterm_synthesis_frequency=2  # Synthesize long-term insight every 2 sessions (for testing)
-    )
-    cosmos_utils = CosmosUtils(
-        embedding_client=chat_client,
-        embedding_deployment=embedding_model
-    )
+    def check_health(self) -> bool:
+        """Check if server is healthy"""
+        try:
+            with httpx.Client(timeout=self.timeout) as client:
+                response = client.get(f"{self.base_url}/health")
+                return response.status_code == 200
+        except Exception as e:
+            print(f"Health check failed: {e}")
+            return False
     
-    # Create orchestrator
-    orchestrator = MemoryServiceOrchestrator(
-        user_id=user_id,
-        session_id=session_id,
-        config=config,
-        cosmos_utils=cosmos_utils,
-        interactions_container=interactions_container,
-        summaries_container=summaries_container,
-        insights_container=insights_container,
-        chat_client=chat_client
-    )
+    async def start_session(self, user_id: str, session_id: str) -> Dict[str, Any]:
+        """Start a new session"""
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.post(
+                f"{self.base_url}/sessions/start",
+                json={"user_id": user_id, "session_id": session_id}
+            )
+            response.raise_for_status()
+            return response.json()
     
-    return orchestrator
+    async def process_turn(
+        self, 
+        user_id: str, 
+        session_id: str, 
+        user_message: str, 
+        assistant_message: str
+    ) -> Dict[str, Any]:
+        """Process a conversation turn"""
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.post(
+                f"{self.base_url}/memory/store",
+                json={
+                    "user_id": user_id,
+                    "session_id": session_id,
+                    "user_message": user_message,
+                    "agent_message": assistant_message
+                }
+            )
+            response.raise_for_status()
+            return response.json()
+    
+    async def end_session(self, user_id: str, session_id: str) -> Dict[str, Any]:
+        """End a session"""
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.post(
+                f"{self.base_url}/sessions/end",
+                json={"user_id": user_id, "session_id": session_id}
+            )
+            response.raise_for_status()
+            return response.json()
+    
+    async def check_session_status(self, session_id: str) -> Dict[str, Any]:
+        """Check session end status"""
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.get(
+                f"{self.base_url}/sessions/status",
+                params={"session_id": session_id}
+            )
+            response.raise_for_status()
+            return response.json()
+    
+    async def get_insights(self, user_id: str, session_id: str = None) -> Dict[str, Any]:
+        """Get user insights"""
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            params = {"user_id": user_id}
+            if session_id:
+                params["session_id"] = session_id
+            response = await client.get(
+                f"{self.base_url}/memory/insights",
+                params=params
+            )
+            response.raise_for_status()
+            return response.json()
+
 
 # Initialize session state
 if 'demo_state' not in st.session_state:
@@ -387,20 +315,34 @@ if 'demo_state' not in st.session_state:
         'conversation_history': [],
         'turn_index': 0,
         'is_playing': False,
-        'orchestrator': None,
+        'api_client': None,
+        'server_connected': False,
         'memory_stats': {
             'turn_buffer_size': 0,
-            'cumulative_summary': "",
+            'total_turns': 0,
             'session_summary': "",
             'key_topics': [],
             'insights_extracted': [],
             'insights_count': 0,
-            'total_turns': 0,
-            'session_ended': False
+            'session_ended': False,
+            'longterm_insight': None
         },
         'speed': 1.0,
-        'show_details': False
+        'server_url': 'http://localhost:8000'
     }
+
+
+def check_server_connection():
+    """Check if server is running"""
+    if not st.session_state.demo_state['api_client']:
+        st.session_state.demo_state['api_client'] = MemoryServiceClient(
+            st.session_state.demo_state['server_url']
+        )
+    
+    client = st.session_state.demo_state['api_client']
+    is_healthy = client.check_health()
+    st.session_state.demo_state['server_connected'] = is_healthy
+    return is_healthy
 
 
 def render_header():
@@ -408,14 +350,14 @@ def render_header():
     col1, col2 = st.columns([3, 1])
     
     with col1:
-        st.markdown('<h1 class="main-header">🧠 Agent Memory Service - Live Demo</h1>', unsafe_allow_html=True)
-        st.caption("**Real-time visualization** of conversation memory, context compression, and insight extraction")
+        st.markdown('<h1 class="main-header">🧠 Agent Memory Service - Remote Demo</h1>', unsafe_allow_html=True)
+        st.caption("**Remote API** visualization of conversation memory via REST endpoints")
     
     with col2:
-        if st.session_state.demo_state['orchestrator']:
+        if st.session_state.demo_state['server_connected']:
             st.markdown('<span class="status-badge status-active">🟢 Connected</span>', unsafe_allow_html=True)
         else:
-            st.markdown('<span class="status-badge">⚪ Not Connected</span>', unsafe_allow_html=True)
+            st.markdown('<span class="status-badge status-error">🔴 Disconnected</span>', unsafe_allow_html=True)
     
     st.divider()
 
@@ -423,6 +365,31 @@ def render_header():
 def render_sidebar():
     """Render sidebar with controls"""
     with st.sidebar:
+        st.markdown("## 🔌 Server Connection")
+        
+        server_url = st.text_input(
+            "Server URL",
+            value=st.session_state.demo_state['server_url'],
+            key="server_url_input"
+        )
+        
+        if server_url != st.session_state.demo_state['server_url']:
+            st.session_state.demo_state['server_url'] = server_url
+            st.session_state.demo_state['api_client'] = None
+        
+        if st.button("🔄 Check Connection", use_container_width=True):
+            with st.spinner("Checking server..."):
+                is_connected = check_server_connection()  # No await needed now
+                if is_connected:
+                    st.success("✅ Server is running!")
+                else:
+                    st.error("❌ Cannot connect to server")
+        
+        if not st.session_state.demo_state['server_connected']:
+            st.warning("⚠️ Server not connected. Please start the server first:\n\n```bash\ncd server\npython main.py\n```")
+            return
+        
+        st.divider()
         st.markdown("## 📋 Demo Scenarios")
         
         for scenario_name, scenario_data in SCENARIOS.items():
@@ -433,24 +400,31 @@ def render_sidebar():
                     'conversation_history': [],
                     'turn_index': 0,
                     'is_playing': False,
-                    'orchestrator': initialize_memory_service(
-                        scenario_data['user_id'],
-                        scenario_data['session_id']
-                    ),
                     'memory_stats': {
                         'turn_buffer_size': 0,
-                        'cumulative_summary': "",
+                        'total_turns': 0,
                         'session_summary': "",
                         'key_topics': [],
                         'insights_extracted': [],
                         'insights_count': 0,
-                        'total_turns': 0,
-                        'session_ended': False
+                        'session_ended': False,
+                        'longterm_insight': None
                     }
                 })
+                
+                # Start session via API
+                try:
+                    client = st.session_state.demo_state['api_client']
+                    asyncio.run(client.start_session(
+                        scenario_data['user_id'],
+                        scenario_data['session_id']
+                    ))
+                    st.success(f"✅ Started session: {scenario_data['session_id']}")
+                except Exception as e:
+                    st.error(f"Failed to start session: {str(e)}")
+                
                 st.rerun()
         
-        # Show controls only if scenario is selected
         if st.session_state.demo_state['current_scenario']:
             st.divider()
             st.markdown("## ⚙️ Playback Controls")
@@ -498,7 +472,6 @@ def render_sidebar():
             
             st.divider()
             
-            # Current scenario info
             st.markdown("## 📖 About This Scenario")
             st.markdown(f"**{st.session_state.demo_state['current_scenario']}**")
             st.caption(scenario['description'])
@@ -511,7 +484,7 @@ async def advance_turn():
     
     scenario = SCENARIOS[st.session_state.demo_state['current_scenario']]
     turn_index = st.session_state.demo_state['turn_index']
-    orchestrator = st.session_state.demo_state['orchestrator']
+    client = st.session_state.demo_state['api_client']
     
     if turn_index >= len(scenario['conversation']):
         st.session_state.demo_state['is_playing'] = False
@@ -532,23 +505,30 @@ async def advance_turn():
         'timestamp': datetime.now().strftime("%H:%M:%S")
     })
     
-    # Process through memory service
-    if orchestrator:
+    # Process through API
+    if client:
         try:
-            result = await orchestrator.process_turn(user_msg, assistant_msg)
+            result = await client.process_turn(
+                user_id=scenario['user_id'],
+                session_id=scenario['session_id'],
+                user_message=user_msg,
+                assistant_message=assistant_msg
+            )
             
-            # Update stats
+            # Update stats (track buffer size client-side since API doesn't return it)
             stats = st.session_state.demo_state['memory_stats']
-            stats['turn_buffer_size'] = result.get('active_turns_count', 0)
             stats['total_turns'] += 1
+            # Buffer holds max 10 turns, so buffer size = min(total_turns, 10)
+            stats['turn_buffer_size'] = min(stats['total_turns'], 10)
             
-            # Check if summarization occurred
-            if result.get('summarization_triggered'):
-                stats['cumulative_summary'] = "Summary created"
-        
+            print(f"✓ Turn processed: {result}")
+            
         except Exception as e:
-            print(e)
             st.error(f"Error processing turn: {str(e)}")
+            import traceback
+            st.code(traceback.format_exc())
+            print(f"❌ Error processing turn: {e}")
+            traceback.print_exc()
     
     # Increment turn
     st.session_state.demo_state['turn_index'] += 1
@@ -560,24 +540,72 @@ async def advance_turn():
 
 async def end_session():
     """End the session and trigger reflection"""
-    orchestrator = st.session_state.demo_state['orchestrator']
+    client = st.session_state.demo_state['api_client']
+    scenario = SCENARIOS[st.session_state.demo_state['current_scenario']]
     
-    if orchestrator and not st.session_state.demo_state['memory_stats']['session_ended']:
+    if client and not st.session_state.demo_state['memory_stats']['session_ended']:
         try:
-            result = await orchestrator.end_session(trigger_reflection=True)
+            # End session
+            result = await client.end_session(
+                user_id=scenario['user_id'],
+                session_id=scenario['session_id']
+            )
             
-            # Update stats with actual results
+            # Poll for completion if background processing
+            if result.get('status') in ['ending', 'processing']:
+                max_attempts = 30
+                
+                for _ in range(max_attempts):
+                    await asyncio.sleep(2)
+                    status = await client.check_session_status(scenario['session_id'])
+                    
+                    if status.get('status') == 'complete':
+                        break
+                    elif status.get('status') == 'error':
+                        st.error(f"Session ending failed: {status.get('error', 'Unknown error')}")
+                        break
+            
+            # Fetch insights for current session only (server-side filtering)
+            insights_list = await client.get_insights(
+                user_id=scenario['user_id'],
+                session_id=scenario['session_id']
+            )
+            
+            # Debug: Print insights info
+            print(f"Total insights fetched for session {scenario['session_id']}: {len(insights_list) if isinstance(insights_list, list) else 0}")
+            if isinstance(insights_list, list) and len(insights_list) > 0:
+                print(f"Sample insight: {insights_list[0]}")
+            
+            # Update stats
             stats = st.session_state.demo_state['memory_stats']
             stats['session_ended'] = True
-            stats['session_summary'] = result.get('session_summary', '')
-            stats['key_topics'] = result.get('key_topics', [])
-            stats['insights_extracted'] = result.get('insights_extracted', [])
-            stats['insights_count'] = len(result.get('insights_extracted', []))
+            
+            # We don't get session_summary from status endpoint, so just mark as ended
+            stats['session_summary'] = f"Session completed with {result.get('turns_count', 0)} turns"
+            stats['key_topics'] = []
+            
+            # Extract session insights (already filtered server-side by session_id)
+            if isinstance(insights_list, list):
+                session_insights = [
+                    ins for ins in insights_list
+                    if ins.get('insight_type') == 'session'
+                ]
+                print(f"Session insights after type filter: {len(session_insights)}")
+                stats['insights_extracted'] = session_insights
+                stats['insights_count'] = len(session_insights)
+                
+                # Extract long-term insight (not session-specific)
+                longterm_insights = [
+                    ins for ins in insights_list
+                    if ins.get('insight_type') == 'long_term'
+                ]
+                if longterm_insights:
+                    stats['longterm_insight'] = longterm_insights[0].get('content', '')
             
         except Exception as e:
-            print(e)
             st.error(f"Error ending session: {str(e)}")
-            st.exception(e)
+            import traceback
+            st.code(traceback.format_exc())
 
 
 def render_chat():
@@ -588,11 +616,9 @@ def render_chat():
         st.info("👈 **Select a scenario** from the sidebar to begin the demo")
         return
     
-    # Get agent type for current scenario
     scenario = SCENARIOS.get(st.session_state.demo_state['current_scenario'], {})
     agent_type = scenario.get('agent_type', 'AI Assistant')
     
-    # Agent icon mapping
     agent_icons = {
         'Financial Advisor': '💼',
         'Shopping Assistant': '🛒',
@@ -602,7 +628,6 @@ def render_chat():
     }
     agent_icon = agent_icons.get(agent_type, '🤖')
     
-    # Chat container
     for msg in st.session_state.demo_state['conversation_history']:
         if msg['role'] == 'user':
             st.markdown(f"""
@@ -666,11 +691,24 @@ def render_memory_visualization():
             st.caption(f"**{stats['turn_buffer_size']}** active turns in buffer")
             st.caption("Displays the most recent conversation turns kept in working memory")
             
-            # Show recent turns
-            recent_turns = st.session_state.demo_state['conversation_history'][-min(10, len(st.session_state.demo_state['conversation_history'])):]
+            # Get agent icon for current scenario
+            scenario = SCENARIOS.get(st.session_state.demo_state['current_scenario'], {})
+            agent_type = scenario.get('agent_type', 'AI Assistant')
+            agent_icons = {
+                'Financial Advisor': '💼',
+                'Shopping Assistant': '🛒',
+                'Math Tutor': '📐',
+                'Medical Assistant': '⚕️',
+                'AI Assistant': '🤖'
+            }
+            agent_icon = agent_icons.get(agent_type, '🤖')
+            
+            # Show recent turns (last 10 messages, which is 5 turns)
+            recent_turns = st.session_state.demo_state['conversation_history'][-min(20, len(st.session_state.demo_state['conversation_history'])):]
             for turn in recent_turns:
-                icon = "👤" if turn['role'] == 'user' else "🤖"
-                st.markdown(f"**{icon}:** {turn['content'][:100]}...")
+                icon = "👤" if turn['role'] == 'user' else agent_icon
+                role_name = "User" if turn['role'] == 'user' else agent_type
+                st.markdown(f"**{icon} {role_name}:** {turn['content'][:100]}...")
         else:
             st.caption("Buffer is empty - add conversation turns to see them here")
     
@@ -699,7 +737,8 @@ def render_memory_visualization():
                     # Display insight details
                     col1, col2 = st.columns([3, 1])
                     with col1:
-                        st.markdown(f"📝 {insight.get('insight_text', 'N/A')}")
+                        content = insight.get('content', '') or insight.get('insight_text', 'N/A')
+                        st.markdown(f"📝 {content}")
                     with col2:
                         category = insight.get('category', 'N/A')
                         importance = insight.get('importance', 'N/A')
@@ -719,37 +758,33 @@ def render_memory_visualization():
             st.caption("Insights will be extracted when the session completes")
     
     with st.expander("🎯 Long-Term User Profile", expanded=False):
-        orchestrator = st.session_state.demo_state.get('orchestrator')
-        if orchestrator:
-            try:
-                # Fetch long-term insight synchronously
-                import asyncio
-                longterm_insight = asyncio.run(orchestrator.reflection.get_longterm_insight(orchestrator.user_id))
-                
-                if longterm_insight:
-                    st.success("✅ **Long-term profile available** - Synthesized from multiple sessions")
-                    st.caption("This profile is built incrementally every 2 sessions from session insights")
-                    st.markdown("---")
-                    st.markdown(longterm_insight)
-                    
-                    # Show metadata
-                    st.caption("💡 This profile is automatically loaded at the start of each new session")
-                else:
-                    st.info("⏳ Long-term profile will be created after completing 2 sessions")
-                    st.caption("Keep conversing across multiple sessions to build a comprehensive user profile!")
-            except Exception as e:
-                st.warning(f"Could not fetch long-term insight: {str(e)}")
+        if stats.get('longterm_insight'):
+            st.success("✅ **Long-term profile available** - Synthesized from multiple sessions")
+            st.caption("This profile is built incrementally every 2 sessions from session insights")
+            st.markdown("---")
+            st.markdown(stats['longterm_insight'])
+            
+            # Show metadata
+            st.caption("💡 This profile is automatically loaded at the start of each new session")
         else:
-            st.caption("Start a scenario to see long-term profile")
-
+            st.info("⏳ Long-term profile will be created after completing 2 sessions")
+            st.caption("Keep conversing across multiple sessions to build a comprehensive user profile!")
 
 
 def main():
     """Main application"""
+    # Check server connection (synchronous now)
+    check_server_connection()
+    
     render_header()
     render_sidebar()
     
-    # Main content - two columns
+    if not st.session_state.demo_state['server_connected']:
+        st.error("❌ Cannot connect to server. Please start the server first.")
+        st.code("cd server\npython main.py", language="bash")
+        return
+    
+    # Main content
     col1, col2 = st.columns([3, 2])
     
     with col1:

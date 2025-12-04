@@ -20,6 +20,7 @@ Scenario:
 import asyncio
 import uuid
 import os
+import requests
 from azure.identity import AzureCliCredential
 from agent_framework import ChatAgent
 from agent_framework.azure import AzureOpenAIChatClient
@@ -50,6 +51,80 @@ def calculate_retirement_needs(current_age: int, retirement_age: int, annual_exp
     years_in_retirement = 90 - retirement_age  # Assume living to 90
     total_needed = annual_expenses * years_in_retirement
     return f"Estimated retirement savings needed: ${total_needed:,} (assuming annual expenses of ${annual_expenses:,} for {years_in_retirement} years)"
+
+
+def wait_for_session_end(memory_service_url: str, session_id: str, timeout: int = 60) -> bool:
+    """
+    Poll the session status endpoint until background processing completes.
+    
+    Args:
+        memory_service_url: Base URL of memory service
+        session_id: Session ID to check
+        timeout: Maximum seconds to wait
+    
+    Returns:
+        True if completed successfully, False if timeout or error
+    """
+    import time
+    start_time = time.time()
+    
+    while time.time() - start_time < timeout:
+        try:
+            response = requests.get(f"{memory_service_url}/sessions/status", params={"session_id": session_id})
+            if response.status_code == 200:
+                status_data = response.json()
+                status = status_data.get("status")
+                
+                if status == "complete":
+                    print(f"   ✓ Background processing complete (insights: {status_data.get('insights_count', 0)})")
+                    return True
+                elif status == "error":
+                    print(f"   ⚠️  Background processing error: {status_data.get('error')}")
+                    return False
+                elif status == "processing":
+                    print("   ⏳ Background synthesis in progress...", end="\r")
+                    time.sleep(2)
+                else:
+                    # not_found - session might have completed already
+                    return True
+        except Exception as e:
+            print(f"   ⚠️  Error checking status: {e}")
+            return False
+    
+    print(f"   ⚠️  Timeout waiting for background processing")
+    return False
+
+
+def display_longterm_insights(memory_service_url: str, user_id: str) -> None:
+    """Fetch and display long-term insights for the user."""
+    try:
+        response = requests.get(f"{memory_service_url}/memory/insights", params={"user_id": user_id})
+        if response.status_code == 200:
+            insights = response.json()
+            # Filter for long-term insights (note: uses "long_term" with underscore)
+            longterm_insights = [i for i in insights if i.get("insight_type") == "long_term"]
+            
+            if longterm_insights:
+                print("🎯 Long-Term User Profile:")
+                print("─" * 80)
+                for insight in longterm_insights:
+                    content = insight.get("content", "")
+                    # Display formatted sections
+                    lines = content.split("\n")
+                    for line in lines:
+                        if line.strip():
+                            print(f"   {line}")
+                print("─" * 80)
+                print()
+            else:
+                print("ℹ️  Long-term profile not yet synthesized (synthesis occurs every N sessions)")
+                print()
+        else:
+            print(f"⚠️  Could not fetch insights: {response.status_code}")
+            print()
+    except Exception as e:
+        print(f"⚠️  Error fetching insights: {e}")
+        print()
 
 
 async def main() -> None:
@@ -88,7 +163,7 @@ async def main() -> None:
     
     # Create the agent with remote memory provider
     agent = ChatAgent(
-        chat_client=AzureOpenAIChatClient(credential=AzureCliCredential()),
+        chat_client=AzureOpenAIChatClient(credential=AzureCliCredential(), deployment_name=os.getenv("AZURE_OPENAI_REASONING_MODEL")),
         instructions=(
             "You are a knowledgeable financial advisor specializing in retirement planning. "
             "You provide personalized advice based on each client's unique situation, risk tolerance, "
@@ -135,6 +210,7 @@ async def main() -> None:
     
     # Explicitly end session - triggers summarization and reflection on server
     # Note: This is REQUIRED - cannot rely on context manager __aexit__
+    session_id = memory_provider.session_id  # Capture before closing
     await memory_provider.end_session()
     await memory_provider.close()
     
@@ -145,6 +221,14 @@ async def main() -> None:
     print("   - Goal: $60k/year in retirement")
     print("   - Underutilizing 401k match")
     print()
+    
+    # Wait for background synthesis to complete
+    print("⏳ Waiting for background synthesis...")
+    wait_for_session_end(memory_service_url, session_id)
+    print()
+    
+    # Display long-term insights
+    display_longterm_insights(memory_service_url, user_id)
     
     # Small delay to simulate time between sessions
     await asyncio.sleep(2)
@@ -170,7 +254,7 @@ async def main() -> None:
     
     # Create agent again (could be different instance, e.g., after server restart)
     agent = ChatAgent(
-        chat_client=AzureOpenAIChatClient(credential=AzureCliCredential()),
+        chat_client=AzureOpenAIChatClient(credential=AzureCliCredential(), deployment_name=os.getenv("AZURE_OPENAI_REASONING_MODEL")),
         instructions=(
             "You are a knowledgeable financial advisor specializing in retirement planning. "
             "You provide personalized advice based on each client's unique situation, risk tolerance, "
@@ -204,6 +288,7 @@ async def main() -> None:
     
     # Explicitly end session - triggers summarization and reflection on server
     # Note: This is REQUIRED - cannot rely on context manager __aexit__
+    session_id = memory_provider.session_id  # Capture before closing
     await memory_provider.end_session()
     await memory_provider.close()
     
@@ -212,6 +297,14 @@ async def main() -> None:
     print("   - Tailored recommendations accordingly")
     print("   - Didn't ask for information already known")
     print()
+    
+    # Wait for background synthesis to complete
+    print("⏳ Waiting for background synthesis...")
+    wait_for_session_end(memory_service_url, session_id)
+    print()
+    
+    # Display long-term insights (may be synthesized now depending on frequency config)
+    display_longterm_insights(memory_service_url, user_id)
     
     await asyncio.sleep(2)
     
@@ -233,7 +326,7 @@ async def main() -> None:
     # You still must call end_session() explicitly when done
     
     agent = ChatAgent(
-        chat_client=AzureOpenAIChatClient(credential=AzureCliCredential()),
+        chat_client=AzureOpenAIChatClient(credential=AzureCliCredential(), deployment_name=os.getenv("AZURE_OPENAI_REASONING_MODEL")),
         instructions=(
             "You are a knowledgeable financial advisor specializing in retirement planning. "
             "You provide personalized advice based on each client's unique situation, risk tolerance, "
@@ -266,6 +359,7 @@ async def main() -> None:
     
     # Explicitly end session - triggers summarization and reflection on server
     # Note: This is REQUIRED - cannot rely on context manager __aexit__
+    session_id = memory_provider.session_id  # Capture before closing
     await memory_provider.end_session()
     await memory_provider.close()
     
@@ -274,6 +368,14 @@ async def main() -> None:
     print("   - Recalls previous advice from Session 2")
     print("   - Provides contextually appropriate recommendations")
     print()
+    
+    # Wait for background synthesis to complete
+    print("⏳ Waiting for background synthesis...")
+    wait_for_session_end(memory_service_url, session_id)
+    print()
+    
+    # Display long-term insights
+    display_longterm_insights(memory_service_url, user_id)
     
     # =========================================================================
     # FINAL STATUS CHECK

@@ -24,7 +24,7 @@ if __name__ == "__main__":
     print(f"Host: {config.host}:{config.port}")
     print(f"Session Pool: max={config.max_sessions}, ttl={config.session_ttl_minutes}min")
     print(f"cosmos_db_name: {config.cosmos_db_name}")
-    print(f"azure_openai_chat_deployment: {config.azure_openai_chat_deployment}")
+    print(f"azure_openai_reasoning_model: {config.azure_openai_reasoning_model}")
     print("=" * 60)
     
     uvicorn.run(

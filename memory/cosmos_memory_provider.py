@@ -90,7 +90,7 @@ class CosmosMemoryProvider(ContextProvider):
         user_id: str,
         session_id: Optional[str] = None,
         auto_manage_session: bool = True,
-        timeout: float = 30.0
+        timeout: float = 60.0
     ):
         """
         Initialize CosmosDB memory provider (remote service version).
@@ -102,7 +102,8 @@ class CosmosMemoryProvider(ContextProvider):
             auto_manage_session: If True, automatically start session on first invoking().
                                 You must still call end_session() explicitly.
                                 If False, you must call _start_session() manually.
-            timeout: HTTP request timeout in seconds
+            timeout: HTTP request timeout in seconds (default 60s to accommodate 
+                    long-term insight synthesis which can take 30+ seconds)
         """
         self.service_url = service_url.rstrip("/")
         self.user_id = user_id
