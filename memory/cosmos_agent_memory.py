@@ -314,13 +314,20 @@ class CosmosAgentMemory:
         
         return "\n\n".join(parts) if parts else ""
     
-    async def search(self, query: str) -> str:
+    async def search(
+        self, 
+        query: str,
+        include_summaries: bool = False,
+        include_insights: bool = False
+    ) -> str:
         """
         Search memory for relevant information.
         Uses CFR agent to search across interactions, summaries, and insights.
         
         Args:
             query: Natural language search query
+            include_summaries: Whether to search session summaries (default: False)
+            include_insights: Whether to search long-term insights (default: False)
         
         Returns:
             Synthesized response with relevant memory
@@ -333,7 +340,11 @@ class CosmosAgentMemory:
                 "Session not started. Call start_session() first or use context manager."
             )
         
-        return await self._orchestrator.retrieve_facts(query)
+        return await self._orchestrator.retrieve_facts(
+            query,
+            include_summaries=include_summaries,
+            include_insights=include_insights
+        )
     
     async def get_insights(
         self,

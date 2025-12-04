@@ -6,7 +6,7 @@ import sys
 from collections.abc import MutableSequence, Sequence
 from typing import Any, Optional
 
-from agent_framework import ChatMessage, Context, ContextProvider, Role
+from agent_framework import ChatMessage, Context, ContextProvider, Role, ai_function
 from agent_framework.exceptions import ServiceInitializationError
 from azure.cosmos import CosmosClient
 from openai import AzureOpenAI
@@ -289,21 +289,29 @@ class CosmosMemoryProvider(ContextProvider):
                     )
             
             # Combine all parts
+            context_messages = []
+            context_instructions = None
+            
             if context_parts:
                 combined_context = "\n\n".join(context_parts)
                 full_context = f"{self.config.context_prompt}\n\n{combined_context}"
                 
-                # Return based on injection mode
+                # Build context based on injection mode
                 if self.config.context_injection_mode == "messages":
-                    return Context(
-                        messages=[ChatMessage(role=Role.USER, text=full_context)]
-                    )
+                    context_messages = [ChatMessage(role=Role.USER, text=full_context)]
                 else:  # instructions
-                    return Context(
-                        instructions=full_context
-                    )
+                    context_instructions = full_context
             
-            return Context()
+            # Inject hidden recall_facts tool if enabled
+            context_tools = []
+            if self.config.inject_recall_tool:
+                context_tools = [self._create_recall_tool()]
+            
+            return Context(
+                messages=context_messages if context_messages else None,
+                instructions=context_instructions,
+                tools=context_tools if context_tools else None
+            )
             
         except Exception as e:
             # Log warning but don't fail - agent should continue
@@ -400,6 +408,46 @@ class CosmosMemoryProvider(ContextProvider):
             self._session_active = False
             return result
         return {"message": "No active session"}
+    
+    def _create_recall_tool(self):
+        """
+        Create the hidden recall_facts tool that gets injected into agent context.
+        
+        This tool allows the agent to autonomously search memory when needed,
+        without the user explicitly defining it.
+        
+        Returns:
+            AIFunction tool for memory recall
+        """
+        # Capture self in closure for the async function
+        memory = self._memory
+        session_active = lambda: self._session_active
+        
+        @ai_function(name=self.config.recall_tool_name, description=self.config.recall_tool_description)
+        async def recall_facts(query: str) -> str:
+            """
+            Search long-term memory for relevant information from past conversations.
+            
+            Args:
+                query: Natural language search query describing what information to recall
+            
+            Returns:
+                Relevant facts and context from past interactions
+            """
+            if not session_active():
+                return "Memory not available - session not started"
+            
+            try:
+                # Search with summaries and insights for comprehensive results
+                return await memory.search(
+                    query,
+                    include_summaries=True,
+                    include_insights=True
+                )
+            except Exception as e:
+                return f"Search failed: {str(e)}"
+        
+        return recall_facts
     
     async def search_memory(self, query: str) -> str:
         """

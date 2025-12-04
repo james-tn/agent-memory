@@ -19,7 +19,9 @@ import logging
 import asyncio
 
 # Agent Framework imports
-from agent_framework import ChatMessage, Context, ContextProvider, Role
+from agent_framework import ChatMessage, Context, ContextProvider, Role, ai_function
+
+from memory.provider_config import CosmosMemoryProviderConfig
 
 logger = logging.getLogger(__name__)
 
@@ -90,7 +92,8 @@ class CosmosMemoryProvider(ContextProvider):
         user_id: str,
         session_id: Optional[str] = None,
         auto_manage_session: bool = True,
-        timeout: float = 60.0
+        timeout: float = 60.0,
+        config: Optional[CosmosMemoryProviderConfig] = None
     ):
         """
         Initialize CosmosDB memory provider (remote service version).
@@ -104,12 +107,14 @@ class CosmosMemoryProvider(ContextProvider):
                                 If False, you must call _start_session() manually.
             timeout: HTTP request timeout in seconds (default 60s to accommodate 
                     long-term insight synthesis which can take 30+ seconds)
+            config: Provider configuration (default: CosmosMemoryProviderConfig())
         """
         self.service_url = service_url.rstrip("/")
         self.user_id = user_id
         self.session_id = session_id or str(uuid.uuid4())
         self.auto_manage_session = auto_manage_session
         self.timeout = timeout
+        self.config = config or CosmosMemoryProviderConfig()
         
         # Session state
         self.session_started = False
@@ -204,12 +209,20 @@ class CosmosMemoryProvider(ContextProvider):
         # Get memory context
         context = await self._get_context()
         
-        # Return Context with instructions
+        # Inject hidden recall_facts tool if enabled
+        context_tools = []
+        if self.config.inject_recall_tool:
+            context_tools = [self._create_recall_tool()]
+        
+        # Return Context with instructions and tools
         formatted_context = context.get("formatted_context", "")
         if formatted_context:
-            return Context(instructions=formatted_context)
+            return Context(
+                instructions=formatted_context,
+                tools=context_tools if context_tools else None
+            )
         
-        return Context()
+        return Context(tools=context_tools if context_tools else None)
     
     async def invoked(
         self,
@@ -317,7 +330,12 @@ class CosmosMemoryProvider(ContextProvider):
         url = f"{self.service_url}/memory/context"
         payload = {
             "user_id": self.user_id,
-            "session_id": self.session_id
+            "session_id": self.session_id,
+            # Pass configuration to control what context server returns
+            "include_longterm_insights": self.config.include_longterm_insights,
+            "include_recent_sessions": self.config.include_recent_sessions,
+            "include_cumulative_summary": self.config.include_cumulative_summary,
+            "include_active_turns": self.config.include_active_turns,
         }
         
         try:
@@ -418,6 +436,77 @@ class CosmosMemoryProvider(ContextProvider):
         except httpx.HTTPError as e:
             logger.error(f"Failed to end session: {e}")
             raise RuntimeError(f"Failed to end memory session: {e}")
+    
+    # ========================================================================
+    # Hidden Tool Injection
+    # ========================================================================
+    
+    def _create_recall_tool(self):
+        """
+        Create the hidden recall_facts tool that gets injected into agent context.
+        
+        This tool allows the agent to autonomously search memory when needed,
+        without the user explicitly defining it.
+        
+        Returns:
+            AIFunction tool for memory recall
+        """
+        # Capture self in closure for the async function
+        service_url = self.service_url
+        user_id = self.user_id
+        session_id_getter = lambda: self.session_id
+        session_started_getter = lambda: self.session_started
+        client_getter = lambda: self.client
+        
+        @ai_function(
+            name=self.config.recall_tool_name,
+            description=self.config.recall_tool_description
+        )
+        async def recall_facts(query: str) -> str:
+            """
+            Search long-term memory for relevant information from past conversations.
+            
+            Args:
+                query: Natural language search query describing what information to recall
+            
+            Returns:
+                Relevant facts and context from past interactions
+            """
+            if not session_started_getter():
+                return "Memory not available - session not started"
+            
+            try:
+                # Call remote service /memory/retrieve endpoint
+                url = f"{service_url}/memory/retrieve"
+                payload = {
+                    "user_id": user_id,
+                    "session_id": session_id_getter(),
+                    "query": query,
+                    "top_k": 5,
+                    "include_summaries": True,
+                    "include_insights": True
+                }
+                
+                logger.info(f"🔍 [recall_facts] Searching for: {query}")
+                
+                response = await client_getter().post(url, json=payload)
+                response.raise_for_status()
+                
+                result = response.json()
+                facts = result.get("facts", "")
+                
+                if not facts or facts.strip() == "":
+                    logger.info("   ❌ No relevant information found")
+                    return f"No relevant information found in memory for: '{query}'"
+                
+                logger.info(f"   ✅ Found: {facts[:100]}...")
+                return facts
+                
+            except Exception as e:
+                logger.error(f"Search failed: {e}")
+                return f"Search failed: {str(e)}"
+        
+        return recall_facts
     
     # ========================================================================
     # Additional Memory Operations (Optional)

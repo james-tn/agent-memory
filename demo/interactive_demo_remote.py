@@ -14,6 +14,7 @@ from datetime import datetime
 import json
 import httpx
 from typing import Optional, Dict, Any
+import uuid
 
 # Resolve repo root for imports
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -306,12 +307,23 @@ class MemoryServiceClient:
             )
             response.raise_for_status()
             return response.json()
+    
+    async def get_context(self, user_id: str, session_id: str) -> Dict[str, Any]:
+        """Get current session context including cumulative summary"""
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.post(
+                f"{self.base_url}/memory/context",
+                json={"user_id": user_id, "session_id": session_id}
+            )
+            response.raise_for_status()
+            return response.json()
 
 
 # Initialize session state
 if 'demo_state' not in st.session_state:
     st.session_state.demo_state = {
         'current_scenario': None,
+        'current_session_id': None,  # Track unique session ID
         'conversation_history': [],
         'turn_index': 0,
         'is_playing': False,
@@ -320,6 +332,7 @@ if 'demo_state' not in st.session_state:
         'memory_stats': {
             'turn_buffer_size': 0,
             'total_turns': 0,
+            'cumulative_summary': "",
             'session_summary': "",
             'key_topics': [],
             'insights_extracted': [],
@@ -394,15 +407,20 @@ def render_sidebar():
         
         for scenario_name, scenario_data in SCENARIOS.items():
             if st.button(scenario_name, key=f"scenario_{scenario_name}", use_container_width=True):
+                # Generate unique session ID for this run
+                unique_session_id = f"session_{uuid.uuid4().hex[:8]}"
+                
                 # Reset and load new scenario
                 st.session_state.demo_state.update({
                     'current_scenario': scenario_name,
+                    'current_session_id': unique_session_id,  # Store unique session ID
                     'conversation_history': [],
                     'turn_index': 0,
                     'is_playing': False,
                     'memory_stats': {
                         'turn_buffer_size': 0,
                         'total_turns': 0,
+                        'cumulative_summary': "",
                         'session_summary': "",
                         'key_topics': [],
                         'insights_extracted': [],
@@ -417,9 +435,9 @@ def render_sidebar():
                     client = st.session_state.demo_state['api_client']
                     asyncio.run(client.start_session(
                         scenario_data['user_id'],
-                        scenario_data['session_id']
+                        unique_session_id
                     ))
-                    st.success(f"✅ Started session: {scenario_data['session_id']}")
+                    st.success(f"✅ Started session: {unique_session_id}")
                 except Exception as e:
                     st.error(f"Failed to start session: {str(e)}")
                 
@@ -485,6 +503,7 @@ async def advance_turn():
     scenario = SCENARIOS[st.session_state.demo_state['current_scenario']]
     turn_index = st.session_state.demo_state['turn_index']
     client = st.session_state.demo_state['api_client']
+    session_id = st.session_state.demo_state.get('current_session_id')  # Use unique session_id
     
     if turn_index >= len(scenario['conversation']):
         st.session_state.demo_state['is_playing'] = False
@@ -510,7 +529,7 @@ async def advance_turn():
         try:
             result = await client.process_turn(
                 user_id=scenario['user_id'],
-                session_id=scenario['session_id'],
+                session_id=session_id,
                 user_message=user_msg,
                 assistant_message=assistant_msg
             )
@@ -520,6 +539,13 @@ async def advance_turn():
             stats['total_turns'] += 1
             # Buffer holds max 10 turns, so buffer size = min(total_turns, 10)
             stats['turn_buffer_size'] = min(stats['total_turns'], 10)
+            
+            # Fetch cumulative summary after processing turn
+            context = await client.get_context(
+                user_id=scenario['user_id'],
+                session_id=session_id
+            )
+            stats['cumulative_summary'] = context.get('cumulative_summary', '')
             
             print(f"✓ Turn processed: {result}")
             
@@ -542,13 +568,14 @@ async def end_session():
     """End the session and trigger reflection"""
     client = st.session_state.demo_state['api_client']
     scenario = SCENARIOS[st.session_state.demo_state['current_scenario']]
+    session_id = st.session_state.demo_state.get('current_session_id')  # Use unique session_id
     
     if client and not st.session_state.demo_state['memory_stats']['session_ended']:
         try:
             # End session
             result = await client.end_session(
                 user_id=scenario['user_id'],
-                session_id=scenario['session_id']
+                session_id=session_id
             )
             
             # Poll for completion if background processing
@@ -557,7 +584,7 @@ async def end_session():
                 
                 for _ in range(max_attempts):
                     await asyncio.sleep(2)
-                    status = await client.check_session_status(scenario['session_id'])
+                    status = await client.check_session_status(session_id)
                     
                     if status.get('status') == 'complete':
                         break
@@ -568,11 +595,11 @@ async def end_session():
             # Fetch insights for current session only (server-side filtering)
             insights_list = await client.get_insights(
                 user_id=scenario['user_id'],
-                session_id=scenario['session_id']
+                session_id=session_id
             )
             
             # Debug: Print insights info
-            print(f"Total insights fetched for session {scenario['session_id']}: {len(insights_list) if isinstance(insights_list, list) else 0}")
+            print(f"Total insights fetched for session {session_id}: {len(insights_list) if isinstance(insights_list, list) else 0}")
             if isinstance(insights_list, list) and len(insights_list) > 0:
                 print(f"Sample insight: {insights_list[0]}")
             

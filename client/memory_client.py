@@ -225,13 +225,21 @@ class MemoryServiceClient:
             logger.error(f"Failed to store turn: {e}")
             raise RuntimeError(f"Failed to store memory turn: {e}")
     
-    async def retrieve_facts(self, query: str, top_k: int = 5) -> List[str]:
+    async def retrieve_facts(
+        self, 
+        query: str, 
+        top_k: int = 5,
+        include_summaries: bool = False,
+        include_insights: bool = False
+    ) -> List[str]:
         """
         Retrieve contextual facts using semantic search.
         
         Args:
             query: Search query
             top_k: Number of facts to retrieve
+            include_summaries: Whether to search session summaries (default: False)
+            include_insights: Whether to search long-term insights (default: False)
         
         Returns:
             List of relevant facts
@@ -241,7 +249,9 @@ class MemoryServiceClient:
             "user_id": self.user_id,
             "session_id": self.session_id,
             "query": query,
-            "top_k": top_k
+            "top_k": top_k,
+            "include_summaries": include_summaries,
+            "include_insights": include_insights
         }
         
         try:

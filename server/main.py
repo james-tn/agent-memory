@@ -228,6 +228,11 @@ class GetContextRequest(BaseModel):
     """Request to get current session context."""
     user_id: str
     session_id: str
+    # Optional configuration to control what context is returned
+    include_longterm_insights: bool = True
+    include_recent_sessions: bool = True
+    include_cumulative_summary: bool = True
+    include_active_turns: bool = True
 
 
 class RetrieveFactsRequest(BaseModel):
@@ -236,6 +241,8 @@ class RetrieveFactsRequest(BaseModel):
     session_id: str
     query: str
     top_k: int = 5
+    include_summaries: bool = False
+    include_insights: bool = False
 
 
 class GetInsightsRequest(BaseModel):
@@ -538,14 +545,15 @@ async def get_context(request: GetContextRequest):
                 ]
         
         # Format the context string for injection (matching embedded provider format)
+        # Respect client configuration for what to include
         formatted_parts = []
         
-        # Add long-term insights
-        if init_context and init_context.longterm_insight:
+        # Add long-term insights (if enabled)
+        if request.include_longterm_insights and init_context and init_context.longterm_insight:
             formatted_parts.append(f"### Long-term Context\n{init_context.longterm_insight}")
         
-        # Add recent session summaries
-        if init_context and init_context.recent_summaries:
+        # Add recent session summaries (if enabled)
+        if request.include_recent_sessions and init_context and init_context.recent_summaries:
             formatted_parts.append("### Recent Sessions")
             for session in init_context.recent_summaries:
                 session_id = session.get("session_id", "unknown")
@@ -555,12 +563,12 @@ async def get_context(request: GetContextRequest):
                 if topics:
                     formatted_parts.append(f"  Topics: {', '.join(topics)}")
         
-        # Add cumulative summary
-        if cumulative_summary:
+        # Add cumulative summary (if enabled)
+        if request.include_cumulative_summary and cumulative_summary:
             formatted_parts.append(f"### Current Session Summary\n{cumulative_summary}")
         
-        # Add active turns
-        if active_turns:
+        # Add active turns (if enabled)
+        if request.include_active_turns and active_turns:
             formatted_parts.append("### Recent Conversation")
             for turn in active_turns:
                 role = turn.get("role", "").upper()
@@ -588,9 +596,9 @@ async def retrieve_facts(request: RetrieveFactsRequest):
     Retrieve contextual facts using semantic search.
     
     Searches across:
-    - Past interactions
-    - Session summaries
-    - User insights
+    - Past interactions (always included)
+    - Session summaries (optional, set include_summaries=true)
+    - User insights (optional, set include_insights=true)
     """
     if not session_pool:
         raise HTTPException(status_code=503, detail="Session pool not initialized")
@@ -605,7 +613,11 @@ async def retrieve_facts(request: RetrieveFactsRequest):
         
         # Retrieve facts
         orchestrator = session_state.orchestrator
-        facts = await orchestrator.retrieve_facts(request.query)
+        facts = await orchestrator.retrieve_facts(
+            request.query,
+            include_summaries=request.include_summaries,
+            include_insights=request.include_insights
+        )
         
         return {
             "query": request.query,

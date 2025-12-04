@@ -64,6 +64,7 @@ class ContextualFactRetrieval:
         
         # Create search tool functions with closure over self
         # This allows the agent to use these as tools while maintaining access to cosmos_utils
+        # Store as instance variables for dynamic tool selection
         
         @ai_function(
             name="search_interactions",
@@ -116,7 +117,13 @@ class ContextualFactRetrieval:
                 print(f"     Results preview: {formatted[:150]}...")
             return formatted
         
-        # Create the Agent Framework agent with the search tools
+        # Store tool references for dynamic selection
+        self._search_interactions_tool = search_interactions_tool
+        self._search_summaries_tool = search_summaries_tool
+        self._search_insights_tool = search_insights_tool
+        
+        # Create the Agent Framework agent with search_interactions tool by default
+        # Other tools will be added dynamically based on retrieve() parameters
         self.agent = ChatAgent(
             chat_client=AzureOpenAIChatClient(credential=DefaultAzureCredential(),deployment_name=config.REASONING_MODEL),
             instructions="""You are a memory retrieval assistant. Your job is to search through past conversations, 
@@ -124,15 +131,20 @@ session summaries, and long-term insights to find relevant information for the u
 
 Use the available search tools to find the most relevant information:
 - search_interactions: For detailed conversation history
-- search_summaries: For session-level context
-- search_insights: For long-term patterns and preferences
+- search_summaries: For session-level context (if available)
+- search_insights: For long-term patterns and preferences (if available)
 
 After searching, synthesize the findings into a clear, concise response.""",
             name="CFR_Agent",
-            tools=[search_interactions_tool, search_summaries_tool, search_insights_tool]
+            tools=[search_interactions_tool]  # Default: only search interactions
         )
     
-    async def retrieve(self, query: str) -> str:
+    async def retrieve(
+        self, 
+        query: str, 
+        include_summaries: bool = False,
+        include_insights: bool = False
+    ) -> str:
         """
         Retrieve relevant memory context for a query using the Agent Framework agent.
         
@@ -141,10 +153,22 @@ After searching, synthesize the findings into a clear, concise response.""",
         
         Args:
             query: User query or context description
+            include_summaries: Whether to search session summaries (default: False)
+            include_insights: Whether to search long-term insights (default: False)
             
         Returns:
             Synthesized response from the agent with relevant memory context
         """
+        # Build list of available tools based on parameters
+        tools = [self._search_interactions_tool]
+        if include_summaries:
+            tools.append(self._search_summaries_tool)
+        if include_insights:
+            tools.append(self._search_insights_tool)
+        
+        # Update agent tools dynamically
+        self.agent.tools = tools
+        
         result = await self.agent.run(query)
         return result.text
     

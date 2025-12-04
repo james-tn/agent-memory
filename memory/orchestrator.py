@@ -111,6 +111,10 @@ class MemoryServiceOrchestrator:
             chat_client=chat_client
         )
         
+        # Auto-enrichment state
+        self._enrichment_cache: Optional[Dict[str, Any]] = None
+        self._last_enrichment_turn_count: int = 0
+        
         print(f"[Orchestrator] Initialized for user {user_id}, session {session_id}")
     
     async def restore_session(self, session_id: str) -> Dict[str, Any]:
@@ -320,41 +324,157 @@ class MemoryServiceOrchestrator:
         
         return status
     
-    async def retrieve_facts(self, query: str) -> str:
+    async def retrieve_facts(
+        self, 
+        query: str,
+        include_summaries: bool = False,
+        include_insights: bool = False
+    ) -> str:
         """
         Retrieve contextual facts using the CFR agent.
         
         The CFR agent intelligently searches across:
-        - Past interactions
-        - Session summaries
-        - Long-term insights
+        - Past interactions (always included)
+        - Session summaries (optional, set include_summaries=True)
+        - Long-term insights (optional, set include_insights=True)
         
         Args:
             query: Natural language query for retrieval
+            include_summaries: Whether to search session summaries (default: False)
+            include_insights: Whether to search long-term insights (default: False)
             
         Returns:
             Synthesized response from CFR agent
         """
         print(f"[Orchestrator] Retrieving facts for query: {query[:50]}...")
+        print(f"  - Include summaries: {include_summaries}")
+        print(f"  - Include insights: {include_insights}")
         
         # Use CFR agent for intelligent retrieval
-        response = await self.cfr_agent.retrieve(query)
+        response = await self.cfr_agent.retrieve(
+            query, 
+            include_summaries=include_summaries,
+            include_insights=include_insights
+        )
         
         print(f"  ✓ Facts retrieved")
         
         return response
     
-    async def get_current_context(self) -> Dict[str, Any]:
+    def _should_enrich_context(self, recent_turns: List[Any]) -> bool:
+        """
+        Detect if recent conversation contains semantic triggers for memory retrieval.
+        
+        Args:
+            recent_turns: Recent conversation turns to analyze
+            
+        Returns:
+            True if enrichment should be triggered
+        """
+        if not self.config.auto_enrich_context:
+            return False
+        
+        if not recent_turns:
+            return False
+        
+        # Check last 3 turns for trigger keywords
+        recent_messages = [
+            turn.content.lower() if hasattr(turn, 'content') else str(turn).lower()
+            for turn in recent_turns[-3:]
+        ]
+        
+        for message in recent_messages:
+            for keyword in self.config.enrichment_trigger_keywords:
+                if keyword.lower() in message:
+                    print(f"  [Auto-Enrich] Trigger detected: '{keyword}' in recent conversation")
+                    return True
+        
+        return False
+    
+    async def _enrich_with_recalled_facts(
+        self,
+        recent_turns: List[Any],
+        force: bool = False
+    ) -> Optional[str]:
+        """
+        Automatically search for and retrieve relevant facts based on recent conversation.
+        
+        Args:
+            recent_turns: Recent conversation turns
+            force: Force enrichment even if no triggers detected
+            
+        Returns:
+            Recalled facts string or None if no enrichment
+        """
+        # Check if we should enrich
+        if not force and not self._should_enrich_context(recent_turns):
+            return None
+        
+        # Check cache - don't re-enrich if buffer hasn't grown
+        current_turn_count = len(self.memory_keeper.turn_buffer)
+        if (self._enrichment_cache is not None and 
+            self._last_enrichment_turn_count == current_turn_count):
+            print("  [Auto-Enrich] Using cached enrichment")
+            return self._enrichment_cache.get('facts')
+        
+        # Build query from recent conversation
+        if not recent_turns:
+            return None
+        
+        # Use last 2-3 turns to build context-aware query
+        query_turns = recent_turns[-3:]
+        query_text = " ".join([
+            turn.content if hasattr(turn, 'content') else str(turn)
+            for turn in query_turns
+        ])
+        
+        # Limit query length
+        if len(query_text) > 500:
+            query_text = query_text[:500]
+        
+        print(f"  [Auto-Enrich] Searching for relevant facts...")
+        print(f"  [Auto-Enrich] Query: {query_text[:100]}...")
+        
+        try:
+            # Search with summaries and insights for comprehensive enrichment
+            facts = await self.retrieve_facts(
+                query_text,
+                include_summaries=True,
+                include_insights=True
+            )
+            
+            # Cache the result
+            self._enrichment_cache = {'facts': facts}
+            self._last_enrichment_turn_count = current_turn_count
+            
+            print(f"  [Auto-Enrich] ✓ Facts retrieved: {len(facts)} chars")
+            return facts
+            
+        except Exception as e:
+            print(f"  [Auto-Enrich] ⚠ Error during enrichment: {e}")
+            return None
+    
+    async def get_current_context(
+        self,
+        auto_enrich: Optional[bool] = None
+    ) -> Dict[str, Any]:
         """
         Get the current working memory context.
+        
+        Args:
+            auto_enrich: Whether to automatically enrich with recalled facts.
+                        If None, uses config.auto_enrich_context setting.
         
         Returns:
             Dictionary containing:
             - active_turns: Recent conversation turns
             - cumulative_summary: Summary of older conversation
             - buffer_status: Current buffer usage
+            - recalled_facts: (Optional) Facts retrieved via auto-enrichment
+            - enrichment_triggered: (Optional) Whether enrichment occurred
         """
-        return {
+        # Base context
+        context = {
             "active_turns": [
                 {"role": turn.role, "content": turn.content}
                 for turn in self.memory_keeper.turn_buffer
@@ -366,6 +486,23 @@ class MemoryServiceOrchestrator:
                 "will_summarize_soon": len(self.memory_keeper.turn_buffer) >= self.config.K_TURN_BUFFER - 1
             }
         }
+        
+        # Auto-enrichment logic
+        should_enrich = auto_enrich if auto_enrich is not None else self.config.auto_enrich_context
+        
+        if should_enrich:
+            if self._should_enrich_context():
+                recalled_facts = await self._enrich_with_recalled_facts()
+                if recalled_facts:
+                    context["recalled_facts"] = recalled_facts
+                    context["enrichment_triggered"] = True
+                    print(f"[Context] Auto-enrichment added {len(recalled_facts)} chars of recalled facts")
+                else:
+                    context["enrichment_triggered"] = False
+            else:
+                context["enrichment_triggered"] = False
+        
+        return context
     
     async def end_session(self, trigger_reflection: bool = True) -> Dict[str, Any]:
         """

@@ -21,6 +21,12 @@ class MemoryConfig:
     
     # Retrieval
     retrieval_mode: str = "on-demand"  # Agent calls CFR via tool
+    auto_enrich_context: bool = False  # Automatically enrich context with recalled facts
+    enrichment_trigger_keywords: List[str] = field(default_factory=lambda: [
+        "remember", "recall", "previous", "last time", "before",
+        "allergy", "allergies", "medication", "prescribe", "prescription",
+        "history", "past", "earlier", "mentioned"
+    ])
     top_k_results: int = 5
     similarity_threshold: float = 0.75
     

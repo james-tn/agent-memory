@@ -743,25 +743,109 @@ User Insights:
 
 **Result:** Agent doesn't re-ask known information!
 
-### 5. On-Demand Memory Search (Agent Tool)
+### 5. Hidden Tool Injection (Automatic Memory Search) ⭐ NEW
 
-**Proactive Memory Retrieval:**
+**Zero-Config Proactive Retrieval:**
 
-Instead of passively receiving context, agents can **actively search** their memory when needed using the `search_memory()` tool:
+The `CosmosMemoryProvider` automatically injects a **hidden `recall_facts` tool** into your agent. The agent can autonomously search long-term memory when needed, **without you explicitly defining the tool**!
+
+```python
+from agent_framework import ChatAgent
+from memory.cosmos_memory_provider_embedded import CosmosMemoryProvider
+
+# Create provider with hidden tool injection (enabled by default)
+provider = CosmosMemoryProvider(
+    user_id="user123",
+    memory_config=memory_config,
+    config=CosmosMemoryProviderConfig(
+        inject_recall_tool=True  # ✅ Default: True
+    )
+)
+
+# Create agent WITHOUT defining any tools
+agent = ChatAgent(
+    client=AzureOpenAIChatClient(...),
+    context_providers=[provider]  # ← recall_facts injected automatically!
+    # NOTE: No tools parameter! The tool is injected transparently
+)
+
+# Agent automatically has recall_facts available and uses it when needed
+result = await agent.run("What medications did I mention before?")
+# Behind the scenes: Agent may call recall_facts("medications mentioned")
+```
+
+**How It Works:**
+
+1. `CosmosMemoryProvider.invoking()` is called before each agent invocation
+2. Provider returns `Context(tools=[recall_facts])` transparently
+3. Agent Framework merges provider tools with agent tools
+4. Agent autonomously decides when to call `recall_facts`
+5. Tool searches across interactions, summaries, and insights
+
+**Configuration:**
+
+```python
+config = CosmosMemoryProviderConfig(
+    inject_recall_tool=True,  # Enable/disable (default: True)
+    recall_tool_name="recall_facts",  # Customize tool name
+    recall_tool_description="..."  # Customize description
+)
+```
+
+**Benefits:**
+
+- ✅ **Zero boilerplate**: No need to define `search_memory` function
+- ✅ **Transparent**: Tool injected automatically by context provider
+- ✅ **Agent-driven**: Agent decides when to search (intelligent)
+- ✅ **Configurable**: Can customize or disable per use case
+- ✅ **Clean code**: User never sees tool definition
+
+**Example - Medical Safety Check:**
+
+```
+Session 1:
+Patient: "I have a severe penicillin allergy - I get anaphylaxis"
+Agent: "I've noted your penicillin allergy in your records."
+
+[2 sessions pass...]
+
+Session 4:
+Patient: "I have a bacterial infection. Can you prescribe antibiotics?"
+Agent thinks: "Need to check allergies before prescribing!"
+Agent calls: recall_facts("patient allergies medications")
+Memory returns: "Patient has severe penicillin allergy (anaphylaxis)"
+Agent: "I see you're allergic to penicillin. I'll prescribe azithromycin instead."
+```
+
+**See Also:**
+- [Hidden Tool Demo](demo/hidden_tool_demo.py)
+- [Comparison Demo](demo/comparison_tool_injection_demo.py)
+- [Documentation](demo/HIDDEN_TOOL_README.md)
+
+---
+
+### 6. Explicit Tool Definition (Advanced)
+
+For advanced scenarios where you want full control, you can still explicitly define `search_memory`:
 
 ```python
 from agent_framework import ChatAgent
 from agent_framework.azure import AzureOpenAIChatClient
 
-# Add search_memory as a tool
+# Disable hidden tool injection
+config = CosmosMemoryProviderConfig(
+    inject_recall_tool=False  # Disable automatic injection
+)
+
+# Add search_memory as explicit tool
 agent = ChatAgent(
     client=AzureOpenAIChatClient(...),
     tools=[
         check_drug_interactions,
         get_drug_info,
-        memory.search_memory  # ← Agent can search memory proactively!
+        memory.search_memory  # ← Explicit tool definition
     ],
-    context_providers=[memory]  # Still gets automatic context too
+    context_providers=[memory]
 )
 ```
 

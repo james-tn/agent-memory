@@ -3,6 +3,7 @@ Configuration for CosmosMemoryProvider.
 """
 
 from dataclasses import dataclass
+from typing import Optional
 from memory.config import MemoryConfig
 
 
@@ -13,10 +14,12 @@ class CosmosMemoryProviderConfig:
     
     This class handles Agent Framework-specific settings like context injection.
     Core memory behavior (buffer size, reflection, etc.) is configured via MemoryConfig.
+    
+    Note: memory_config is optional for remote provider (memory service handles it server-side).
     """
     
-    # Core memory configuration (required)
-    memory_config: MemoryConfig
+    # Core memory configuration (required for embedded provider, optional for remote)
+    memory_config: Optional[MemoryConfig] = None
     
     # Agent Framework integration settings
     inject_instructions: bool = True
@@ -41,4 +44,14 @@ class CosmosMemoryProviderConfig:
     recent_sessions_header: str = "### Recent Session Summaries"
     cumulative_summary_header: str = "### Current Session Summary"
     active_turns_header: str = "### Recent Conversation"
+    
+    # Hidden tool injection for automatic fact retrieval
+    inject_recall_tool: bool = True  # Enable hidden recall_facts tool by default
+    recall_tool_name: str = "recall_facts"
+    recall_tool_description: str = (
+        "Search long-term memory for relevant information from past conversations. "
+        "Use this when you need context about the user's history, preferences, or past interactions "
+        "that isn't in the current conversation. This searches across all previous sessions, "
+        "session summaries, and extracted insights."
+    )
 
