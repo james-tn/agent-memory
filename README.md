@@ -135,6 +135,63 @@ async with memory:
 
 ---
 
+## CosmosDB Setup
+
+For production deployments, use Azure CosmosDB with vector search. Two options:
+
+### Option 1: Azure Developer CLI (Recommended)
+
+Deploy everything with a single command:
+
+```bash
+# Install azd if needed
+winget install Microsoft.Azd
+
+# Deploy infrastructure (CosmosDB + OpenAI + Container Apps)
+cd agent_memory
+azd up
+```
+
+This creates:
+- CosmosDB account with vector search enabled
+- Database `agent_memory_db` with 3 containers (interactions, session_summaries, insights)
+- Vector indexes (1536 dimensions, cosine distance)
+- RBAC roles for AAD authentication
+- Azure OpenAI with required model deployments
+
+See [infra/README.md](infra/README.md) for details.
+
+### Option 2: Manual Setup
+
+1. **Create CosmosDB Account** with NoSQL API and vector search capability
+2. **Create Database**: `agent_memory_db`
+3. **Create Containers** with partition key `/user_id`:
+   - `interactions` - conversation chunks with vector embeddings
+   - `session_summaries` - session metadata with vector search
+   - `insights` - long-term user insights
+
+4. **Configure Vector Policies** (example for interactions container):
+   ```json
+   {
+     "vectorEmbeddings": [{
+       "path": "/content_vector",
+       "dataType": "float32",
+       "dimensions": 1536,
+       "distanceFunction": "cosine"
+     }]
+   }
+   ```
+
+5. **Set Environment Variables**:
+   ```bash
+   COSMOS_ENDPOINT=https://your-account.documents.azure.com:443/
+   AZURE_COSMOS_DATABASE_NAME=agent_memory
+   ```
+
+6. **Authenticate** using Azure CLI: `az login`
+
+---
+
 ## Examples
 
 Run the demo to see all features:
