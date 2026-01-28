@@ -1,0 +1,955 @@
+{
+  "timestamp": "2026-01-20T01:45:38.843018",
+  "summary": {
+    "total_cases": 25,
+    "sam_wins": 2,
+    "vector_wins": 10,
+    "ties": 13,
+    "avg_sam_precision": 0.18000000000000005,
+    "avg_sam_recall": 0.4198095238095238,
+    "avg_sam_llm_score": 5.16,
+    "avg_vector_precision": 0.18000000000000005,
+    "avg_vector_recall": 0.4198095238095238,
+    "avg_vector_llm_score": 5.52
+  },
+  "results": [
+    {
+      "test_id": "eval_001",
+      "category": "personal_info",
+      "query": "What is Alice's job title and where does she work?",
+      "ground_truth": [
+        "Alice Chen is a senior ML engineer",
+        "Alice works at TechCorp",
+        "Alice is in San Francisco",
+        "Alice has been at TechCorp for about 3 years"
+      ],
+      "sam": {
+        "retrieved": [
+          "Alice Chen works at TechCorp.",
+          "Alice Chen works on computer vision.",
+          "Alice has a Principal Engineer interview scheduled for the end of February.",
+          "Alice Chen is a senior machine learning engineer.",
+          "Alice Chen has worked at TechCorp for about 3 years."
+        ],
+        "precision": 0.3,
+        "recall": 0.75,
+        "llm_score": 8
+      },
+      "vector": {
+        "retrieved": [
+          "Alice Chen works at TechCorp.",
+          "Alice Chen works on computer vision.",
+          "Alice has a Principal Engineer interview scheduled for the end of February.",
+          "Alice Chen is a senior machine learning engineer.",
+          "Alice Chen has worked at TechCorp for about 3 years."
+        ],
+        "precision": 0.3,
+        "recall": 0.75,
+        "llm_score": 9
+      },
+      "sam_wins": false,
+      "explanation": "Both methods retrieved the same set of facts, including all ground\u2011truth facts relevant to Alice\u2019s job title and workplace. They also included the same amount of irrelevant information, so neither has a clear advantage for this query."
+    },
+    {
+      "test_id": "eval_002",
+      "category": "project",
+      "query": "What is the target latency for the autonomous vehicle project?",
+      "ground_truth": [
+        "Target latency is under 50ms end-to-end",
+        "Running on NVIDIA Orin",
+        "10 Hz for the full pipeline",
+        "The pipeline is 20% faster than BEVFusion"
+      ],
+      "sam": {
+        "retrieved": [
+          "The project goal is achieving real-time performance on edge devices.",
+          "The target latency for the project is under 50 milliseconds end-to-end on NVIDIA Orin.",
+          "Alice has been assigned to lead a new project on autonomous vehicle perception at TechCorp.",
+          "BEVFormer is being considered as an architecture for the project.",
+          "The full pipeline operates at 10 Hz to match the LiDAR rate."
+        ],
+        "precision": 0.2,
+        "recall": 0.5,
+        "llm_score": 9
+      },
+      "vector": {
+        "retrieved": [
+          "The project goal is achieving real-time performance on edge devices.",
+          "The target latency for the project is under 50 milliseconds end-to-end on NVIDIA Orin.",
+          "Alice has been assigned to lead a new project on autonomous vehicle perception at TechCorp.",
+          "BEVFormer is being considered as an architecture for the project.",
+          "The full pipeline operates at 10 Hz to match the LiDAR rate."
+        ],
+        "precision": 0.2,
+        "recall": 0.5,
+        "llm_score": 9
+      },
+      "sam_wins": false,
+      "explanation": "Both methods retrieved the same relevant facts for answering the query, including the target latency, 10 Hz pipeline rate, and NVIDIA Orin details. Neither retrieved the missing ground truth fact about being 20% faster than BEVFusion. Both also included similar levels of irrelevant context, so neither offers a clear advantage for this specific query."
+    },
+    {
+      "test_id": "eval_003",
+      "category": "team",
+      "query": "Who are the members of Alice's AV team and what are their roles?",
+      "ground_truth": [
+        "Marcus is a LiDAR specialist from the robotics division",
+        "Priya is working on camera backbone optimization",
+        "Jake is helping with the data pipeline",
+        "Alice is the team lead",
+        "Alice is mentoring Priya and Jake"
+      ],
+      "sam": {
+        "retrieved": [
+          "Alice is starting the next phase of the AV project.",
+          "Alice believes engineers could rotate between areas such as AV, robotics, and AR/VR as part of talent development.",
+          "The user is building a team for an AV project.",
+          "Alice Chen works with ViT.",
+          "Alice is proposing to establish a cross-functional perception excellence team."
+        ],
+        "precision": 0.1,
+        "recall": 0.2,
+        "llm_score": 1
+      },
+      "vector": {
+        "retrieved": [
+          "Alice is starting the next phase of the AV project.",
+          "Alice believes engineers could rotate between areas such as AV, robotics, and AR/VR as part of talent development.",
+          "The user is building a team for an AV project.",
+          "Alice Chen works with ViT.",
+          "Alice is proposing to establish a cross-functional perception excellence team."
+        ],
+        "precision": 0.1,
+        "recall": 0.2,
+        "llm_score": 1
+      },
+      "sam_wins": false,
+      "explanation": "Both Method A and Method B failed to retrieve any of the ground truth facts about Alice\u2019s AV team members (Marcus, Priya, Jake). They instead surfaced identical irrelevant info about Alice\u2019s career and projects. Neither method captured relevant facts, and both included similar amounts of noise, so neither is more helpful for answering the query."
+    },
+    {
+      "test_id": "eval_004",
+      "category": "architecture",
+      "query": "What neural network architecture does the AV system use for LiDAR processing?",
+      "ground_truth": [
+        "Modified PointPillars architecture",
+        "Marcus optimized the pillar feature encoding",
+        "Late fusion with learned attention weights",
+        "Temporal fusion across 3 frames"
+      ],
+      "sam": {
+        "retrieved": [
+          "The AV project requires expertise in vision processing and LiDAR processing.",
+          "The full pipeline operates at 10 Hz to match the LiDAR rate.",
+          "The LiDAR branch uses a modified PointPillars architecture.",
+          "Fusion between camera and LiDAR branches is done via late fusion with learned attention weights.",
+          "The camera branch of the AV perception system uses EfficientNetV2 as the backbone."
+        ],
+        "precision": 0.3,
+        "recall": 0.75,
+        "llm_score": 8
+      },
+      "vector": {
+        "retrieved": [
+          "The AV project requires expertise in vision processing and LiDAR processing.",
+          "The full pipeline operates at 10 Hz to match the LiDAR rate.",
+          "The LiDAR branch uses a modified PointPillars architecture.",
+          "Fusion between camera and LiDAR branches is done via late fusion with learned attention weights.",
+          "The camera branch of the AV perception system uses EfficientNetV2 as the backbone."
+        ],
+        "precision": 0.3,
+        "recall": 0.75,
+        "llm_score": 9
+      },
+      "sam_wins": false,
+      "explanation": "Both methods retrieved the same set of highly relevant facts, including the key ground\u2011truth elements: modified PointPillars, late fusion with learned attention weights, and temporal fusion across three frames. Neither method introduced irrelevant noise, and both would enable an AI assistant to answer the query equally well."
+    },
+    {
+      "test_id": "eval_005",
+      "category": "architecture",
+      "query": "How does the camera branch work in the perception system?",
+      "ground_truth": [
+        "EfficientNetV2 as the backbone",
+        "FPN for multi-scale features",
+        "Cameras run at 30 Hz",
+        "Downsampled to match LiDAR rate"
+      ],
+      "sam": {
+        "retrieved": [
+          "The camera branch of the AV perception system uses EfficientNetV2 as the backbone.",
+          "Fusion between camera and LiDAR branches is done via late fusion with learned attention weights.",
+          "The camera branch uses FPN for multi-scale feature extraction.",
+          "Detection proposals from each modality are fused using a small transformer module.",
+          "The full pipeline operates at 10 Hz to match the LiDAR rate."
+        ],
+        "precision": 0.4,
+        "recall": 1.0,
+        "llm_score": 9
+      },
+      "vector": {
+        "retrieved": [
+          "The camera branch of the AV perception system uses EfficientNetV2 as the backbone.",
+          "Fusion between camera and LiDAR branches is done via late fusion with learned attention weights.",
+          "The camera branch uses FPN for multi-scale feature extraction.",
+          "Detection proposals from each modality are fused using a small transformer module.",
+          "The full pipeline operates at 10 Hz to match the LiDAR rate."
+        ],
+        "precision": 0.4,
+        "recall": 1.0,
+        "llm_score": 9
+      },
+      "sam_wins": false,
+      "explanation": "Both methods retrieved all four ground\u2011truth facts (EfficientNetV2, FPN, 30\u202fHz cameras, downsampling to LiDAR rate). Both also included similar amounts of irrelevant information. Because their retrieved sets are effectively identical in relevance and noise, neither method is clearly superior for answering the query."
+    },
+    {
+      "test_id": "eval_006",
+      "category": "personal",
+      "query": "What are Alice's hobbies outside of work?",
+      "ground_truth": [
+        "Hiking at least once a month",
+        "Playing piano - classical, Chopin's Nocturnes",
+        "Coffee enthusiast - Ethiopian single-origin with Chemex",
+        "Camping at places like Yosemite",
+        "Skiing with family at Stowe"
+      ],
+      "sam": {
+        "retrieved": [
+          "Alice recently returned from a vacation where she went skiing and is feeling refreshed.",
+          "Alice plans to go skiing in Vermont with her dad.",
+          "Alice's family has a tradition of skiing at Stowe.",
+          "Alice convinced her mom to try skiing on green runs.",
+          "Alice is traveling to Boston for the holidays to see her parents."
+        ],
+        "precision": 0.1,
+        "recall": 0.2,
+        "llm_score": 3
+      },
+      "vector": {
+        "retrieved": [
+          "Alice recently returned from a vacation where she went skiing and is feeling refreshed.",
+          "Alice plans to go skiing in Vermont with her dad.",
+          "Alice's family has a tradition of skiing at Stowe.",
+          "Alice convinced her mom to try skiing on green runs.",
+          "Alice is traveling to Boston for the holidays to see her parents."
+        ],
+        "precision": 0.1,
+        "recall": 0.2,
+        "llm_score": 3
+      },
+      "sam_wins": false,
+      "explanation": "Both methods retrieved essentially the same set of skiing\u2011related facts and missed all other ground\u2011truth hobbies (hiking, piano, coffee, camping). Neither method introduced additional noise relative to the other, and neither captured the non\u2011skiing hobbies, so their usefulness for answering the query is equally limited."
+    },
+    {
+      "test_id": "eval_007",
+      "category": "family",
+      "query": "Tell me about Alice's parents",
+      "ground_truth": [
+        "Parents live in Boston",
+        "Mom is a retired pastry chef",
+        "Dad was an electrical engineer at Raytheon",
+        "Dad goes skiing at Stowe - family tradition",
+        "Dad is proud of Alice's CVPR paper"
+      ],
+      "sam": {
+        "retrieved": [
+          "Alice is traveling to Boston for the holidays to see her parents.",
+          "Alice's family has a tradition of skiing at Stowe.",
+          "Alice plans to go skiing in Vermont with her dad.",
+          "Alice's dad tells his retired engineer friends about the CVPR paper.",
+          "Alice convinced her mom to try skiing on green runs."
+        ],
+        "precision": 0.3,
+        "recall": 0.6,
+        "llm_score": 7
+      },
+      "vector": {
+        "retrieved": [
+          "Alice is traveling to Boston for the holidays to see her parents.",
+          "Alice's family has a tradition of skiing at Stowe.",
+          "Alice plans to go skiing in Vermont with her dad.",
+          "Alice's dad tells his retired engineer friends about the CVPR paper.",
+          "Alice convinced her mom to try skiing on green runs."
+        ],
+        "precision": 0.3,
+        "recall": 0.6,
+        "llm_score": 6
+      },
+      "sam_wins": false,
+      "explanation": "Both methods returned the same set of facts, none of which included new ground\u2011truth information about the parents' professions or location. Both contained similar irrelevant noise and were equally limited in usefulness for answering the query."
+    },
+    {
+      "test_id": "eval_008",
+      "category": "publication",
+      "query": "What were the results and outcomes of the CVPR paper?",
+      "ground_truth": [
+        "Paper accepted to CVPR 2026",
+        "15% mAP improvement over baseline",
+        "Beats BEVFusion by 12%",
+        "Beats TransFusion by 10%",
+        "Oral presentation selected",
+        "Three strong accepts from reviewers",
+        "Conference is in Seattle"
+      ],
+      "sam": {
+        "retrieved": [
+          "The user is working on gaining external visibility through a CVPR paper.",
+          "Alice's paper was accepted to CVPR 2026.",
+          "Alice's dad tells his retired engineer friends about the CVPR paper.",
+          "The user is considering submitting the paper to CVPR 2026.",
+          "Alice's dad is proud of the CVPR paper."
+        ],
+        "precision": 0.3,
+        "recall": 0.42857142857142855,
+        "llm_score": 3
+      },
+      "vector": {
+        "retrieved": [
+          "The user is working on gaining external visibility through a CVPR paper.",
+          "Alice's paper was accepted to CVPR 2026.",
+          "Alice's dad tells his retired engineer friends about the CVPR paper.",
+          "The user is considering submitting the paper to CVPR 2026.",
+          "Alice's dad is proud of the CVPR paper."
+        ],
+        "precision": 0.3,
+        "recall": 0.42857142857142855,
+        "llm_score": 4
+      },
+      "sam_wins": false,
+      "explanation": "Both methods retrieved essentially the same facts. Each captured two ground\u2011truth items (CVPR 2026 acceptance and three strong accepts) and missed all performance\u2011related results. Both also included the same irrelevant context, so neither provided an advantage for answering the query."
+    },
+    {
+      "test_id": "eval_009",
+      "category": "career",
+      "query": "What are Alice's career aspirations and plans for advancement?",
+      "ground_truth": [
+        "Wants to become Principal Engineer",
+        "Interested in technical director role eventually",
+        "Principal interview scheduled for end of February",
+        "Manager Sarah is helping with preparation",
+        "Philosophy of 'efficient perception'",
+        "Proposing a cross-functional perception excellence team"
+      ],
+      "sam": {
+        "retrieved": [
+          "Alice has a Principal Engineer interview scheduled for the end of February.",
+          "Alice believes engineers could rotate between areas such as AV, robotics, and AR/VR as part of talent development.",
+          "Sarah is helping Alice prepare for the Principal Engineer interview using practice presentations.",
+          "Alice will give an oral presentation at CVPR 2026.",
+          "Alice Chen works at TechCorp."
+        ],
+        "precision": 0.2,
+        "recall": 0.3333333333333333,
+        "llm_score": 6
+      },
+      "vector": {
+        "retrieved": [
+          "Alice has a Principal Engineer interview scheduled for the end of February.",
+          "Alice believes engineers could rotate between areas such as AV, robotics, and AR/VR as part of talent development.",
+          "Sarah is helping Alice prepare for the Principal Engineer interview using practice presentations.",
+          "Alice will give an oral presentation at CVPR 2026.",
+          "Alice Chen works at TechCorp."
+        ],
+        "precision": 0.2,
+        "recall": 0.3333333333333333,
+        "llm_score": 5
+      },
+      "sam_wins": false,
+      "explanation": "Both methods retrieved the same set of facts, none of which include several key ground\u2011truth items such as Alice\u2019s long\u2011term goal of becoming a Principal Engineer, interest in a technical director role, or her philosophy of efficient perception. Both methods also include similar irrelevant noise (vacation, CVPR talk, employer info). Therefore neither is clearly better; they are effectively equivalent for this query."
+    },
+    {
+      "test_id": "eval_010",
+      "category": "data",
+      "query": "What datasets is the AV team using for training?",
+      "ground_truth": [
+        "nuScenes for initial development",
+        "Waymo Open Dataset",
+        "Collecting own data with three test vehicles in Bay Area",
+        "Using CARLA simulator for synthetic data",
+        "Auto-labeling with pre-trained models"
+      ],
+      "sam": {
+        "retrieved": [
+          "The AV project has started work on the data pipeline.",
+          "The user is building a team for an AV project.",
+          "The AV project has a development environment set up.",
+          "The AV project requires expertise in vision processing and LiDAR processing.",
+          "Alice's team plans to release the model weights and inference code."
+        ],
+        "precision": 0.2,
+        "recall": 0.4,
+        "llm_score": 6
+      },
+      "vector": {
+        "retrieved": [
+          "The AV project has started work on the data pipeline.",
+          "The user is building a team for an AV project.",
+          "The AV project has a development environment set up.",
+          "The AV project requires expertise in vision processing and LiDAR processing.",
+          "Alice's team plans to release the model weights and inference code."
+        ],
+        "precision": 0.2,
+        "recall": 0.4,
+        "llm_score": 6
+      },
+      "sam_wins": false,
+      "explanation": "Both methods retrieved the same set of facts, including two ground\u2011truth\u2011relevant items: access to the Waymo Open Dataset and use of the CARLA simulator for synthetic data. Neither method retrieved the other ground\u2011truth datasets, and both included similar amounts of irrelevant noise, making them effectively equal in usefulness for answering the query."
+    },
+    {
+      "test_id": "eval_011",
+      "category": "cross_session",
+      "query": "How did Alice balance work stress during the paper deadline?",
+      "ground_truth": [
+        "Went for a short hike at Lands End",
+        "Hiking helps clear her head",
+        "Takes breaks in nature for complex problems",
+        "Tried to maintain balance during crunch time"
+      ],
+      "sam": {
+        "retrieved": [
+          "Alice's paper was accepted to CVPR 2026.",
+          "The user is stressed due to the upcoming CVPR deadline.",
+          "Alice recently returned from a vacation where she went skiing and is feeling refreshed.",
+          "Alice's dad tells his retired engineer friends about the CVPR paper.",
+          "Alice is planning to finish the code release for the CVPR paper in Q1."
+        ],
+        "precision": 0.0,
+        "recall": 0.0,
+        "llm_score": 1
+      },
+      "vector": {
+        "retrieved": [
+          "Alice's paper was accepted to CVPR 2026.",
+          "The user is stressed due to the upcoming CVPR deadline.",
+          "Alice recently returned from a vacation where she went skiing and is feeling refreshed.",
+          "Alice's dad tells his retired engineer friends about the CVPR paper.",
+          "Alice is planning to finish the code release for the CVPR paper in Q1."
+        ],
+        "precision": 0.0,
+        "recall": 0.0,
+        "llm_score": 2
+      },
+      "sam_wins": false,
+      "explanation": "Both methods failed to retrieve any of the ground\u2011truth facts about Alice managing work stress through hiking or taking nature breaks. All retrieved items were unrelated CVPR paper details, so neither method captured relevant information or reduced noise for answering the query."
+    },
+    {
+      "test_id": "eval_012",
+      "category": "temporal",
+      "query": "What happened with the bug found before the CVPR deadline?",
+      "ground_truth": [
+        "Bug in IoU calculation for rotated bounding boxes",
+        "Numbers dropped by 2% after fixing",
+        "Still ahead of BEVFusion by 12%",
+        "Marcus set up SLURM queue for parallel ablations",
+        "Results expected by Thursday"
+      ],
+      "sam": {
+        "retrieved": [
+          "The user is stressed due to the upcoming CVPR deadline.",
+          "The CVPR deadline is in 5 days.",
+          "The user found a bug in their evaluation code.",
+          "The user is considering submitting the paper to CVPR 2026.",
+          "Alice's paper was accepted to CVPR 2026."
+        ],
+        "precision": 0.2,
+        "recall": 0.4,
+        "llm_score": 5
+      },
+      "vector": {
+        "retrieved": [
+          "The user is stressed due to the upcoming CVPR deadline.",
+          "The CVPR deadline is in 5 days.",
+          "The user found a bug in their evaluation code.",
+          "The user is considering submitting the paper to CVPR 2026.",
+          "Alice's paper was accepted to CVPR 2026."
+        ],
+        "precision": 0.2,
+        "recall": 0.4,
+        "llm_score": 6
+      },
+      "sam_wins": true,
+      "explanation": "Both methods retrieved the two key bug-related facts (IoU bug and 2% drop), but SAM additionally retrieved \u2018performance dropped by 2%\u2019 more explicitly and contained slightly less irrelevant CVPR\u2011social context compared to the vector search list, which included more loosely related items. Overall, SAM was marginally more focused and captured more of the ground truth facts relevant to the query."
+    },
+    {
+      "test_id": "eval_013",
+      "category": "mentorship",
+      "query": "How is Alice contributing to her mentees' development?",
+      "ground_truth": [
+        "Mentoring Priya and Jake",
+        "Made sure mentees are co-authors on paper",
+        "Priya's first publication",
+        "Priya helping with figures",
+        "Jake wrote first draft of related work"
+      ],
+      "sam": {
+        "retrieved": [
+          "Sarah is helping Alice prepare for the Principal Engineer interview using practice presentations.",
+          "Alice believes engineers could rotate between areas such as AV, robotics, and AR/VR as part of talent development.",
+          "Alice is proposing to establish a cross-functional perception excellence team.",
+          "Alice's team plans to keep the training pipeline internal.",
+          "Alice Chen is a senior machine learning engineer."
+        ],
+        "precision": 0.0,
+        "recall": 0.0,
+        "llm_score": 0
+      },
+      "vector": {
+        "retrieved": [
+          "Sarah is helping Alice prepare for the Principal Engineer interview using practice presentations.",
+          "Alice believes engineers could rotate between areas such as AV, robotics, and AR/VR as part of talent development.",
+          "Alice is proposing to establish a cross-functional perception excellence team.",
+          "Alice's team plans to keep the training pipeline internal.",
+          "Alice Chen is a senior machine learning engineer."
+        ],
+        "precision": 0.0,
+        "recall": 0.0,
+        "llm_score": 0
+      },
+      "sam_wins": false,
+      "explanation": "Both Method A (SAM) and Method B (Vector Search) retrieved the exact same set of irrelevant facts and captured none of the ground truth mentoring-related facts. Both contain only noise with respect to the query, so neither is more helpful."
+    },
+    {
+      "test_id": "eval_014",
+      "category": "technical_philosophy",
+      "query": "What is Alice's technical vision for her Principal Engineer interview?",
+      "ground_truth": [
+        "Philosophy of 'efficient perception'",
+        "SOTA accuracy on edge devices",
+        "Architecture and training innovations",
+        "Cross-functional perception excellence team",
+        "Virtual team across AV, robotics, and AR/VR",
+        "Engineer rotation between areas"
+      ],
+      "sam": {
+        "retrieved": [
+          "Sarah is helping Alice prepare for the Principal Engineer interview using practice presentations.",
+          "Alice has a Principal Engineer interview scheduled for the end of February.",
+          "Alice has been assigned to lead a new project on autonomous vehicle perception at TechCorp.",
+          "Alice's technical vision centers on efficient perception.",
+          "Alice believes engineers could rotate between areas such as AV, robotics, and AR/VR as part of talent development."
+        ],
+        "precision": 0.2,
+        "recall": 0.3333333333333333,
+        "llm_score": 6
+      },
+      "vector": {
+        "retrieved": [
+          "Sarah is helping Alice prepare for the Principal Engineer interview using practice presentations.",
+          "Alice has a Principal Engineer interview scheduled for the end of February.",
+          "Alice has been assigned to lead a new project on autonomous vehicle perception at TechCorp.",
+          "Alice's technical vision centers on efficient perception.",
+          "Alice believes engineers could rotate between areas such as AV, robotics, and AR/VR as part of talent development."
+        ],
+        "precision": 0.2,
+        "recall": 0.3333333333333333,
+        "llm_score": 9
+      },
+      "sam_wins": false,
+      "explanation": "Both methods retrieved the same set of highly relevant facts, including efficient perception, cross-functional perception excellence team, and engineer rotations. Neither added irrelevant noise, and both covered all key ground truth elements needed to answer the query."
+    },
+    {
+      "test_id": "eval_015",
+      "category": "relationship",
+      "query": "What is the relationship between Alice and Marcus?",
+      "ground_truth": [
+        "Marcus is on Alice's AV team",
+        "Marcus is a LiDAR specialist",
+        "Marcus came from robotics division",
+        "Marcus optimized pillar feature encoding",
+        "Marcus set up SLURM queue for experiments"
+      ],
+      "sam": {
+        "retrieved": [
+          "Alice is traveling to Boston for the holidays to see her parents.",
+          "Alice plans to go skiing in Vermont with her dad.",
+          "Alice has been assigned to lead a new project on autonomous vehicle perception at TechCorp.",
+          "Alice recently returned from a vacation where she went skiing and is feeling refreshed.",
+          "Alice Chen works at TechCorp."
+        ],
+        "precision": 0.0,
+        "recall": 0.0,
+        "llm_score": 1
+      },
+      "vector": {
+        "retrieved": [
+          "Alice is traveling to Boston for the holidays to see her parents.",
+          "Alice plans to go skiing in Vermont with her dad.",
+          "Alice has been assigned to lead a new project on autonomous vehicle perception at TechCorp.",
+          "Alice recently returned from a vacation where she went skiing and is feeling refreshed.",
+          "Alice Chen works at TechCorp."
+        ],
+        "precision": 0.0,
+        "recall": 0.0,
+        "llm_score": 0
+      },
+      "sam_wins": false,
+      "explanation": "Neither Method A nor Method B retrieved any of the ground truth facts about Marcus or his relationship to Alice. Both methods returned only information about Alice\u2019s personal life, work context, and skiing, none of which help answer the query. Therefore, they are equivalent in relevance and usefulness for this question."
+    },
+    {
+      "test_id": "eval_016",
+      "category": "multi_hop_2",
+      "query": "What architecture did the person from the robotics division optimize?",
+      "ground_truth": [
+        "Marcus came from robotics division",
+        "Marcus optimized pillar feature encoding",
+        "Modified PointPillars architecture"
+      ],
+      "sam": {
+        "retrieved": [
+          "Marcus previously worked in the robotics division at TechCorp.",
+          "The user is working on a paper about a fusion architecture.",
+          "The user has been advising the ML Platform team informally on model optimization.",
+          "Alice believes engineers could rotate between areas such as AV, robotics, and AR/VR as part of talent development.",
+          "The user prefers candidates experienced with transformer architectures."
+        ],
+        "precision": 0.2,
+        "recall": 0.6666666666666666,
+        "llm_score": 7
+      },
+      "vector": {
+        "retrieved": [
+          "Marcus previously worked in the robotics division at TechCorp.",
+          "The user is working on a paper about a fusion architecture.",
+          "The user has been advising the ML Platform team informally on model optimization.",
+          "Alice believes engineers could rotate between areas such as AV, robotics, and AR/VR as part of talent development.",
+          "The user prefers candidates experienced with transformer architectures."
+        ],
+        "precision": 0.2,
+        "recall": 0.6666666666666666,
+        "llm_score": 7
+      },
+      "sam_wins": false,
+      "explanation": "Both methods retrieved the two relevant ground\u2011truth facts about Marcus being from the robotics division and optimizing the pillar feature encoding, and neither retrieved the PointPillars detail. Both also included similar amounts of unrelated noise, so neither is clearly better for answering the query."
+    },
+    {
+      "test_id": "eval_017",
+      "category": "multi_hop_2",
+      "query": "What coffee does the person who went to Yosemite prefer?",
+      "ground_truth": [
+        "Alice camped at Yosemite",
+        "Alice went hiking at Yosemite",
+        "Alice likes Ethiopian single-origin coffee",
+        "Alice uses a Chemex"
+      ],
+      "sam": {
+        "retrieved": [
+          "The user is a coffee enthusiast.",
+          "The user identifies as a coffee snob.",
+          "The user prefers Ethiopian single-origin coffee beans.",
+          "The user recently returned from a hiking trip in Yosemite National Park.",
+          "The user's mom taught the user to appreciate good coffee."
+        ],
+        "precision": 0.1,
+        "recall": 0.25,
+        "llm_score": 8
+      },
+      "vector": {
+        "retrieved": [
+          "The user is a coffee enthusiast.",
+          "The user identifies as a coffee snob.",
+          "The user prefers Ethiopian single-origin coffee beans.",
+          "The user recently returned from a hiking trip in Yosemite National Park.",
+          "The user's mom taught the user to appreciate good coffee."
+        ],
+        "precision": 0.1,
+        "recall": 0.25,
+        "llm_score": 9
+      },
+      "sam_wins": false,
+      "explanation": "Both methods retrieved the same set of facts, all of which include the key ground\u2011truth items needed to answer the query (Yosemite location, Ethiopian coffee preference, Chemex use). Both also include similar amounts of extra but non\u2011harmful contextual details, so neither shows a clear advantage in relevance or noise."
+    },
+    {
+      "test_id": "eval_018",
+      "category": "multi_hop_2",
+      "query": "What paper did the person who plays Chopin submit to?",
+      "ground_truth": [
+        "Alice plays piano",
+        "Alice plays Chopin's Nocturnes",
+        "Paper accepted to CVPR 2026",
+        "Oral presentation at CVPR"
+      ],
+      "sam": {
+        "retrieved": [
+          "The user has been learning Chopin's Nocturnes.",
+          "The user plays piano, mostly classical.",
+          "Alice's paper was accepted to CVPR 2026.",
+          "The paper received three strong accepts from reviewers.",
+          "The user is considering submitting the paper to CVPR 2026."
+        ],
+        "precision": 0.1,
+        "recall": 0.25,
+        "llm_score": 8
+      },
+      "vector": {
+        "retrieved": [
+          "The user has been learning Chopin's Nocturnes.",
+          "The user plays piano, mostly classical.",
+          "Alice's paper was accepted to CVPR 2026.",
+          "The paper received three strong accepts from reviewers.",
+          "The user is considering submitting the paper to CVPR 2026."
+        ],
+        "precision": 0.1,
+        "recall": 0.25,
+        "llm_score": 8
+      },
+      "sam_wins": false,
+      "explanation": "Both methods retrieved the same set of facts. They each captured two relevant ground-truth facts (piano and Chopin, plus CVPR acceptance) and included the same amount of irrelevant information. Therefore, neither method provided an advantage for answering the query."
+    },
+    {
+      "test_id": "eval_019",
+      "category": "multi_hop_3",
+      "query": "What company did the father of the person mentoring Priya work at?",
+      "ground_truth": [
+        "Alice mentors Priya",
+        "Alice's dad was an electrical engineer",
+        "Alice's dad worked at Raytheon"
+      ],
+      "sam": {
+        "retrieved": [
+          "The user has started mentoring two junior engineers, Priya and Jake.",
+          "Priya will be a co-author on the paper.",
+          "Priya has been helping with the figures for the paper.",
+          "The user might bring their dad to the TechCorp campus for a tour.",
+          "This will be Priya's first publication."
+        ],
+        "precision": 0.2,
+        "recall": 0.6666666666666666,
+        "llm_score": 4
+      },
+      "vector": {
+        "retrieved": [
+          "The user has started mentoring two junior engineers, Priya and Jake.",
+          "Priya will be a co-author on the paper.",
+          "Priya has been helping with the figures for the paper.",
+          "The user might bring their dad to the TechCorp campus for a tour.",
+          "This will be Priya's first publication."
+        ],
+        "precision": 0.2,
+        "recall": 0.6666666666666666,
+        "llm_score": 6
+      },
+      "sam_wins": false,
+      "explanation": "Both methods retrieved the same set of facts, including the key relevant fact that Alice's dad worked at Raytheon. Neither method retrieved the missing ground truth fact that Alice mentors Priya, and both contain similar levels of unrelated context about Priya and the user's dad. Therefore, neither method is more effective than the other for answering the query."
+    },
+    {
+      "test_id": "eval_020",
+      "category": "multi_hop_3",
+      "query": "What is the latency target for the project led by the person whose mom is a pastry chef?",
+      "ground_truth": [
+        "Alice's mom is a retired pastry chef",
+        "Alice leads the AV team",
+        "Target latency is under 50ms end-to-end"
+      ],
+      "sam": {
+        "retrieved": [
+          "The user's mom is a retired pastry chef.",
+          "The user plans to take their mom to Tartine Manufactory.",
+          "The user's mom loves trying new cuisines.",
+          "The user's mom taught the user to appreciate good coffee.",
+          "The user plans to take their mom to Sightglass Coffee."
+        ],
+        "precision": 0.2,
+        "recall": 0.6666666666666666,
+        "llm_score": 3
+      },
+      "vector": {
+        "retrieved": [
+          "The user's mom is a retired pastry chef.",
+          "The user plans to take their mom to Tartine Manufactory.",
+          "The user's mom loves trying new cuisines.",
+          "The user's mom taught the user to appreciate good coffee.",
+          "The user plans to take their mom to Sightglass Coffee."
+        ],
+        "precision": 0.2,
+        "recall": 0.6666666666666666,
+        "llm_score": 4
+      },
+      "sam_wins": false,
+      "explanation": "Both methods retrieved the fact about the mom being a pastry chef and the target latency, but neither retrieved the crucial fact about Alice leading the AV team. Both also included similar irrelevant noise, so neither has a clear advantage."
+    },
+    {
+      "test_id": "eval_021",
+      "category": "multi_hop_3",
+      "query": "What neural network does the team use that includes the person optimizing the camera backbone?",
+      "ground_truth": [
+        "Priya is working on camera backbone optimization",
+        "Priya is on Alice's AV team",
+        "EfficientNetV2 as the camera backbone",
+        "FPN for multi-scale features"
+      ],
+      "sam": {
+        "retrieved": [
+          "Priya is working on camera backbone optimization.",
+          "The camera branch of the AV perception system uses EfficientNetV2 as the backbone.",
+          "The camera branch uses FPN for multi-scale feature extraction.",
+          "Fusion between camera and LiDAR branches is done via late fusion with learned attention weights.",
+          "The user has been advising the ML Platform team informally on model optimization."
+        ],
+        "precision": 0.3,
+        "recall": 0.75,
+        "llm_score": 9
+      },
+      "vector": {
+        "retrieved": [
+          "Priya is working on camera backbone optimization.",
+          "The camera branch of the AV perception system uses EfficientNetV2 as the backbone.",
+          "The camera branch uses FPN for multi-scale feature extraction.",
+          "Fusion between camera and LiDAR branches is done via late fusion with learned attention weights.",
+          "The user has been advising the ML Platform team informally on model optimization."
+        ],
+        "precision": 0.3,
+        "recall": 0.75,
+        "llm_score": 7
+      },
+      "sam_wins": false,
+      "explanation": "Both methods retrieved the same core relevant facts: Priya's role in camera backbone optimization, EfficientNetV2 as the backbone, and FPN for multi\u2011scale features. Neither introduced additional irrelevant noise, and both contained similar extra context. Therefore, they are equally effective for answering the query."
+    },
+    {
+      "test_id": "eval_022",
+      "category": "multi_hop_indirect",
+      "query": "What do the two people Alice mentors contribute to the CVPR paper?",
+      "ground_truth": [
+        "Alice mentors Priya and Jake",
+        "Priya is helping with figures",
+        "Jake wrote first draft of related work",
+        "Both are co-authors on the paper"
+      ],
+      "sam": {
+        "retrieved": [
+          "Alice's dad tells his retired engineer friends about the CVPR paper.",
+          "Alice's dad is proud of the CVPR paper.",
+          "Alice's paper was accepted to CVPR 2026.",
+          "Alice will give an oral presentation at CVPR 2026.",
+          "Alice is planning to finish the code release for the CVPR paper in Q1."
+        ],
+        "precision": 0.0,
+        "recall": 0.0,
+        "llm_score": 1
+      },
+      "vector": {
+        "retrieved": [
+          "Alice's dad tells his retired engineer friends about the CVPR paper.",
+          "Alice's dad is proud of the CVPR paper.",
+          "Alice's paper was accepted to CVPR 2026.",
+          "Alice will give an oral presentation at CVPR 2026.",
+          "Alice is planning to finish the code release for the CVPR paper in Q1."
+        ],
+        "precision": 0.0,
+        "recall": 0.0,
+        "llm_score": 1
+      },
+      "sam_wins": false,
+      "explanation": "Both methods retrieved the same set of facts, none of which include the ground truth information about Priya or Jake. Both contain only irrelevant details about Alice\u2019s dad, CVPR acceptance, and Alice\u2019s research areas, so neither provides useful material for answering the query."
+    },
+    {
+      "test_id": "eval_023",
+      "category": "multi_hop_temporal",
+      "query": "What happened after the IoU bug was discovered on the AV team's paper?",
+      "ground_truth": [
+        "Bug in IoU calculation for rotated bounding boxes",
+        "Numbers dropped by 2% after fixing",
+        "Still ahead of BEVFusion by 12%",
+        "Marcus set up SLURM queue for parallel ablations",
+        "Results expected by Thursday"
+      ],
+      "sam": {
+        "retrieved": [
+          "The user's performance metrics dropped by 2% after fixing the IoU bug.",
+          "The bug involved computing IoU incorrectly for rotated bounding boxes.",
+          "The user found a bug in their evaluation code.",
+          "The paper's second main contribution is improved efficiency.",
+          "Alice's dad tells his retired engineer friends about the CVPR paper."
+        ],
+        "precision": 0.2,
+        "recall": 0.4,
+        "llm_score": 6
+      },
+      "vector": {
+        "retrieved": [
+          "The user's performance metrics dropped by 2% after fixing the IoU bug.",
+          "The bug involved computing IoU incorrectly for rotated bounding boxes.",
+          "The user found a bug in their evaluation code.",
+          "The paper's second main contribution is improved efficiency.",
+          "Alice's dad tells his retired engineer friends about the CVPR paper."
+        ],
+        "precision": 0.2,
+        "recall": 0.4,
+        "llm_score": 6
+      },
+      "sam_wins": false,
+      "explanation": "Both methods retrieved the same relevant facts (IoU bug, rotated boxes, 2% drop) and both also included similar irrelevant noise. Neither method retrieved the remaining ground\u2011truth items (still ahead of BEVFusion, SLURM setup, Thursday results), so their usefulness is effectively equal."
+    },
+    {
+      "test_id": "eval_024",
+      "category": "multi_hop_causal",
+      "query": "Why did the person from Boston's daughter get an oral presentation?",
+      "ground_truth": [
+        "Alice's parents live in Boston",
+        "Paper accepted to CVPR 2026",
+        "15% mAP improvement over baseline",
+        "Three strong accepts from reviewers",
+        "Selected for oral presentation"
+      ],
+      "sam": {
+        "retrieved": [
+          "The user's parents are visiting from Boston next week.",
+          "Alice is traveling to Boston for the holidays to see her parents.",
+          "Alice will give an oral presentation at CVPR 2026.",
+          "Alice will stay in Boston for two weeks.",
+          "Alice's dad is proud of the CVPR paper."
+        ],
+        "precision": 0.1,
+        "recall": 0.2,
+        "llm_score": 4
+      },
+      "vector": {
+        "retrieved": [
+          "The user's parents are visiting from Boston next week.",
+          "Alice is traveling to Boston for the holidays to see her parents.",
+          "Alice will give an oral presentation at CVPR 2026.",
+          "Alice will stay in Boston for two weeks.",
+          "Alice's dad is proud of the CVPR paper."
+        ],
+        "precision": 0.1,
+        "recall": 0.2,
+        "llm_score": 4
+      },
+      "sam_wins": false,
+      "explanation": "Both methods retrieved the same set of facts, and neither retrieved the key ground\u2011truth details about the paper acceptance, mAP improvement, reviewer scores, or selection for oral presentation. Both contained substantial irrelevant noise and were equally unhelpful for answering the query."
+    },
+    {
+      "test_id": "eval_025",
+      "category": "multi_hop_entity_chain",
+      "query": "What family tradition does the person who beat BEVFusion participate in?",
+      "ground_truth": [
+        "Paper beats BEVFusion by 12%",
+        "Alice is the team lead",
+        "Skiing with family at Stowe",
+        "Dad goes skiing - family tradition"
+      ],
+      "sam": {
+        "retrieved": [
+          "The user's method beats BEVFusion by 12% after corrections.",
+          "The user's method is 20% faster than BEVFusion on Orin.",
+          "The user compares their method against BEVFusion, TransFusion, and PointPillars + ResNet.",
+          "Alice's dad is proud of the CVPR paper.",
+          "The user is building a team for an AV project."
+        ],
+        "precision": 0.3,
+        "recall": 0.75,
+        "llm_score": 6
+      },
+      "vector": {
+        "retrieved": [
+          "The user's method beats BEVFusion by 12% after corrections.",
+          "The user's method is 20% faster than BEVFusion on Orin.",
+          "The user compares their method against BEVFusion, TransFusion, and PointPillars + ResNet.",
+          "Alice's dad is proud of the CVPR paper.",
+          "The user is building a team for an AV project."
+        ],
+        "precision": 0.3,
+        "recall": 0.75,
+        "llm_score": 8
+      },
+      "sam_wins": true,
+      "explanation": "Both methods included the key ground\u2011truth fact (family skiing at Stowe), but SAM additionally retrieved a closely related detail (Alice's dad goes skiing) whereas Vector Search did not. SAM therefore captured more relevant ground\u2011truth information with no additional irrelevant noise, making it more useful for answering the query."
+    }
+  ]
+}

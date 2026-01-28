@@ -1,0 +1,468 @@
+{
+  "metadata": {
+    "description": "Evaluation dataset for comparing SAM vs simple vector retrieval",
+    "created": "2026-01-19",
+    "data_source": "sample_conversations.json",
+    "evaluation_criteria": "Precision of retrieved facts against ground truth"
+  },
+  "test_cases": [
+    {
+      "id": "eval_001",
+      "category": "personal_info",
+      "query": "What is Alice's job title and where does she work?",
+      "goal": "Find basic professional information about Alice",
+      "ground_truth_facts": [
+        "Alice Chen is a senior ML engineer",
+        "Alice works at TechCorp",
+        "Alice is in San Francisco",
+        "Alice has been at TechCorp for about 3 years"
+      ],
+      "irrelevant_facts": [
+        "Alice likes hiking",
+        "Alice plays piano",
+        "Alice's paper was accepted to CVPR"
+      ]
+    },
+    {
+      "id": "eval_002",
+      "category": "project",
+      "query": "What is the target latency for the autonomous vehicle project?",
+      "goal": "Find technical performance requirements for the AV project",
+      "ground_truth_facts": [
+        "Target latency is under 50ms end-to-end",
+        "Running on NVIDIA Orin",
+        "10 Hz for the full pipeline",
+        "The pipeline is 20% faster than BEVFusion"
+      ],
+      "irrelevant_facts": [
+        "Alice likes Ethiopian coffee",
+        "The team uses nuScenes dataset",
+        "Alice hikes at Yosemite"
+      ]
+    },
+    {
+      "id": "eval_003",
+      "category": "team",
+      "query": "Who are the members of Alice's AV team and what are their roles?",
+      "goal": "Identify team members and their responsibilities",
+      "ground_truth_facts": [
+        "Marcus is a LiDAR specialist from the robotics division",
+        "Priya is working on camera backbone optimization",
+        "Jake is helping with the data pipeline",
+        "Alice is the team lead",
+        "Alice is mentoring Priya and Jake"
+      ],
+      "irrelevant_facts": [
+        "Alice uses PyTorch",
+        "The team is submitting to CVPR",
+        "Alice's dad is a retired engineer"
+      ]
+    },
+    {
+      "id": "eval_004",
+      "category": "architecture",
+      "query": "What neural network architecture does the AV system use for LiDAR processing?",
+      "goal": "Find the specific LiDAR architecture choice",
+      "ground_truth_facts": [
+        "Modified PointPillars architecture",
+        "Marcus optimized the pillar feature encoding",
+        "Late fusion with learned attention weights",
+        "Temporal fusion across 3 frames"
+      ],
+      "irrelevant_facts": [
+        "Alice uses PyTorch for research",
+        "The team uses EfficientNetV2 for camera",
+        "CVPR deadline was November 15th"
+      ]
+    },
+    {
+      "id": "eval_005",
+      "category": "architecture",
+      "query": "How does the camera branch work in the perception system?",
+      "goal": "Find camera processing architecture details",
+      "ground_truth_facts": [
+        "EfficientNetV2 as the backbone",
+        "FPN for multi-scale features",
+        "Cameras run at 30 Hz",
+        "Downsampled to match LiDAR rate"
+      ],
+      "irrelevant_facts": [
+        "PointPillars for LiDAR",
+        "Alice went hiking at Yosemite",
+        "The paper was accepted with three strong accepts"
+      ]
+    },
+    {
+      "id": "eval_006",
+      "category": "personal",
+      "query": "What are Alice's hobbies outside of work?",
+      "goal": "Find personal interests and activities",
+      "ground_truth_facts": [
+        "Hiking at least once a month",
+        "Playing piano - classical, Chopin's Nocturnes",
+        "Coffee enthusiast - Ethiopian single-origin with Chemex",
+        "Camping at places like Yosemite",
+        "Skiing with family at Stowe"
+      ],
+      "irrelevant_facts": [
+        "Alice works on computer vision",
+        "Alice is pursuing Principal Engineer",
+        "The AV project uses late fusion"
+      ]
+    },
+    {
+      "id": "eval_007",
+      "category": "family",
+      "query": "Tell me about Alice's parents",
+      "goal": "Find information about Alice's family members",
+      "ground_truth_facts": [
+        "Parents live in Boston",
+        "Mom is a retired pastry chef",
+        "Dad was an electrical engineer at Raytheon",
+        "Dad goes skiing at Stowe - family tradition",
+        "Dad is proud of Alice's CVPR paper"
+      ],
+      "irrelevant_facts": [
+        "Alice works at TechCorp",
+        "The team beat BEVFusion by 12%",
+        "Alice mentors junior engineers"
+      ]
+    },
+    {
+      "id": "eval_008",
+      "category": "publication",
+      "query": "What were the results and outcomes of the CVPR paper?",
+      "goal": "Find publication results and metrics",
+      "ground_truth_facts": [
+        "Paper accepted to CVPR 2026",
+        "15% mAP improvement over baseline",
+        "Beats BEVFusion by 12%",
+        "Beats TransFusion by 10%",
+        "Oral presentation selected",
+        "Three strong accepts from reviewers",
+        "Conference is in Seattle"
+      ],
+      "irrelevant_facts": [
+        "Alice likes Ethiopian coffee",
+        "The team uses nuScenes dataset",
+        "Alice's Principal interview is in February"
+      ]
+    },
+    {
+      "id": "eval_009",
+      "category": "career",
+      "query": "What are Alice's career aspirations and plans for advancement?",
+      "goal": "Find career goals and development plans",
+      "ground_truth_facts": [
+        "Wants to become Principal Engineer",
+        "Interested in technical director role eventually",
+        "Principal interview scheduled for end of February",
+        "Manager Sarah is helping with preparation",
+        "Philosophy of 'efficient perception'",
+        "Proposing a cross-functional perception excellence team"
+      ],
+      "irrelevant_facts": [
+        "Alice uses ViT and DETR",
+        "The team collected data with test vehicles",
+        "Alice's mom is a retired pastry chef"
+      ]
+    },
+    {
+      "id": "eval_010",
+      "category": "data",
+      "query": "What datasets is the AV team using for training?",
+      "goal": "Find training data sources and collection methods",
+      "ground_truth_facts": [
+        "nuScenes for initial development",
+        "Waymo Open Dataset",
+        "Collecting own data with three test vehicles in Bay Area",
+        "Using CARLA simulator for synthetic data",
+        "Auto-labeling with pre-trained models"
+      ],
+      "irrelevant_facts": [
+        "Alice plays Chopin's Nocturnes",
+        "The team uses late fusion",
+        "Alice went to Tartine Manufactory"
+      ]
+    },
+    {
+      "id": "eval_011",
+      "category": "cross_session",
+      "query": "How did Alice balance work stress during the paper deadline?",
+      "goal": "Find stress management and work-life balance information",
+      "ground_truth_facts": [
+        "Went for a short hike at Lands End",
+        "Hiking helps clear her head",
+        "Takes breaks in nature for complex problems",
+        "Tried to maintain balance during crunch time"
+      ],
+      "irrelevant_facts": [
+        "Target latency is 50ms",
+        "Paper was accepted with oral presentation",
+        "The team used SLURM for ablation runs"
+      ]
+    },
+    {
+      "id": "eval_012",
+      "category": "temporal",
+      "query": "What happened with the bug found before the CVPR deadline?",
+      "goal": "Find specific incident details about the evaluation bug",
+      "ground_truth_facts": [
+        "Bug in IoU calculation for rotated bounding boxes",
+        "Numbers dropped by 2% after fixing",
+        "Still ahead of BEVFusion by 12%",
+        "Marcus set up SLURM queue for parallel ablations",
+        "Results expected by Thursday"
+      ],
+      "irrelevant_facts": [
+        "Alice is a senior ML engineer",
+        "The paper was oral presentation",
+        "Alice's mom tried green runs while skiing"
+      ]
+    },
+    {
+      "id": "eval_013",
+      "category": "mentorship",
+      "query": "How is Alice contributing to her mentees' development?",
+      "goal": "Find mentorship activities and outcomes",
+      "ground_truth_facts": [
+        "Mentoring Priya and Jake",
+        "Made sure mentees are co-authors on paper",
+        "Priya's first publication",
+        "Priya helping with figures",
+        "Jake wrote first draft of related work"
+      ],
+      "irrelevant_facts": [
+        "Alice uses PyTorch for research",
+        "The AV project uses PointPillars",
+        "Alice's dad is proud of the CVPR paper"
+      ]
+    },
+    {
+      "id": "eval_014",
+      "category": "technical_philosophy",
+      "query": "What is Alice's technical vision for her Principal Engineer interview?",
+      "goal": "Find technical strategy and philosophy",
+      "ground_truth_facts": [
+        "Philosophy of 'efficient perception'",
+        "SOTA accuracy on edge devices",
+        "Architecture and training innovations",
+        "Cross-functional perception excellence team",
+        "Virtual team across AV, robotics, and AR/VR",
+        "Engineer rotation between areas"
+      ],
+      "irrelevant_facts": [
+        "Alice camped at Upper Pines",
+        "The camera branch uses FPN",
+        "Alice's mom is a pastry chef"
+      ]
+    },
+    {
+      "id": "eval_015",
+      "category": "relationship",
+      "query": "What is the relationship between Alice and Marcus?",
+      "goal": "Find how Alice and Marcus work together",
+      "ground_truth_facts": [
+        "Marcus is on Alice's AV team",
+        "Marcus is a LiDAR specialist",
+        "Marcus came from robotics division",
+        "Marcus optimized pillar feature encoding",
+        "Marcus set up SLURM queue for experiments"
+      ],
+      "irrelevant_facts": [
+        "Alice mentors Priya and Jake",
+        "Alice plays piano",
+        "The paper was accepted to CVPR"
+      ]
+    },
+    {
+      "id": "eval_016",
+      "category": "multi_hop_2",
+      "query": "What architecture did the person from the robotics division optimize?",
+      "goal": "Requires: query->robotics->Marcus->PointPillars (2 hops)",
+      "requires_hops": 2,
+      "reasoning_chain": ["robotics division", "Marcus", "PointPillars/pillar feature encoding"],
+      "ground_truth_facts": [
+        "Marcus came from robotics division",
+        "Marcus optimized pillar feature encoding",
+        "Modified PointPillars architecture"
+      ],
+      "irrelevant_facts": [
+        "Alice is the team lead",
+        "EfficientNetV2 for camera backbone",
+        "Priya is working on camera optimization"
+      ]
+    },
+    {
+      "id": "eval_017",
+      "category": "multi_hop_2",
+      "query": "What coffee does the person who went to Yosemite prefer?",
+      "goal": "Requires: query->Yosemite->Alice->Ethiopian coffee (2 hops)",
+      "requires_hops": 2,
+      "reasoning_chain": ["Yosemite hiking/camping", "Alice", "Ethiopian single-origin coffee"],
+      "ground_truth_facts": [
+        "Alice camped at Yosemite",
+        "Alice went hiking at Yosemite",
+        "Alice likes Ethiopian single-origin coffee",
+        "Alice uses a Chemex"
+      ],
+      "irrelevant_facts": [
+        "Alice is an ML engineer",
+        "The team uses nuScenes",
+        "Marcus is a LiDAR specialist"
+      ]
+    },
+    {
+      "id": "eval_018",
+      "category": "multi_hop_2",
+      "query": "What paper did the person who plays Chopin submit to?",
+      "goal": "Requires: query->Chopin/piano->Alice->CVPR paper (2 hops)",
+      "requires_hops": 2,
+      "reasoning_chain": ["piano/Chopin", "Alice", "CVPR 2026"],
+      "ground_truth_facts": [
+        "Alice plays piano",
+        "Alice plays Chopin's Nocturnes",
+        "Paper accepted to CVPR 2026",
+        "Oral presentation at CVPR"
+      ],
+      "irrelevant_facts": [
+        "Target latency is 50ms",
+        "Marcus optimized PointPillars",
+        "The team uses Waymo dataset"
+      ]
+    },
+    {
+      "id": "eval_019",
+      "category": "multi_hop_3",
+      "query": "What company did the father of the person mentoring Priya work at?",
+      "goal": "Requires: query->Priya->Alice (mentor)->Dad->Raytheon (3 hops)",
+      "requires_hops": 3,
+      "reasoning_chain": ["Priya", "Alice (mentor)", "Alice's dad", "Raytheon"],
+      "ground_truth_facts": [
+        "Alice mentors Priya",
+        "Alice's dad was an electrical engineer",
+        "Alice's dad worked at Raytheon"
+      ],
+      "irrelevant_facts": [
+        "Marcus came from robotics",
+        "Jake is helping with data pipeline",
+        "Alice works at TechCorp"
+      ]
+    },
+    {
+      "id": "eval_020",
+      "category": "multi_hop_3",
+      "query": "What is the latency target for the project led by the person whose mom is a pastry chef?",
+      "goal": "Requires: query->pastry chef->Alice's mom->Alice->AV project->50ms (3 hops)",
+      "requires_hops": 3,
+      "reasoning_chain": ["pastry chef", "Alice's mom", "Alice", "AV project", "50ms latency"],
+      "ground_truth_facts": [
+        "Alice's mom is a retired pastry chef",
+        "Alice leads the AV team",
+        "Target latency is under 50ms end-to-end"
+      ],
+      "irrelevant_facts": [
+        "Alice plays Chopin",
+        "Marcus is from robotics division",
+        "Paper was accepted to CVPR"
+      ]
+    },
+    {
+      "id": "eval_021",
+      "category": "multi_hop_3",
+      "query": "What neural network does the team use that includes the person optimizing the camera backbone?",
+      "goal": "Requires: query->camera backbone->Priya->team->EfficientNetV2 (3 hops)",
+      "requires_hops": 3,
+      "reasoning_chain": ["camera backbone optimization", "Priya", "Alice's team", "EfficientNetV2"],
+      "ground_truth_facts": [
+        "Priya is working on camera backbone optimization",
+        "Priya is on Alice's AV team",
+        "EfficientNetV2 as the camera backbone",
+        "FPN for multi-scale features"
+      ],
+      "irrelevant_facts": [
+        "Modified PointPillars for LiDAR",
+        "Alice went hiking at Lands End",
+        "Marcus set up SLURM queue"
+      ]
+    },
+    {
+      "id": "eval_022",
+      "category": "multi_hop_indirect",
+      "query": "What do the two people Alice mentors contribute to the CVPR paper?",
+      "goal": "Requires understanding both Priya and Jake's contributions",
+      "requires_hops": 2,
+      "reasoning_chain": ["Alice mentors", "Priya and Jake", "their contributions"],
+      "ground_truth_facts": [
+        "Alice mentors Priya and Jake",
+        "Priya is helping with figures",
+        "Jake wrote first draft of related work",
+        "Both are co-authors on the paper"
+      ],
+      "irrelevant_facts": [
+        "Marcus optimized PointPillars",
+        "The paper has 15% mAP improvement",
+        "Conference is in Seattle"
+      ]
+    },
+    {
+      "id": "eval_023",
+      "category": "multi_hop_temporal",
+      "query": "What happened after the IoU bug was discovered on the AV team's paper?",
+      "goal": "Requires: IoU bug->timeline of events (temporal multi-hop)",
+      "requires_hops": 2,
+      "reasoning_chain": ["IoU bug", "impact", "resolution", "ablations"],
+      "ground_truth_facts": [
+        "Bug in IoU calculation for rotated bounding boxes",
+        "Numbers dropped by 2% after fixing",
+        "Still ahead of BEVFusion by 12%",
+        "Marcus set up SLURM queue for parallel ablations",
+        "Results expected by Thursday"
+      ],
+      "irrelevant_facts": [
+        "Alice likes Ethiopian coffee",
+        "The team uses nuScenes dataset",
+        "Alice's parents live in Boston"
+      ]
+    },
+    {
+      "id": "eval_024",
+      "category": "multi_hop_causal",
+      "query": "Why did the person from Boston's daughter get an oral presentation?",
+      "goal": "Requires: Boston->parents->Alice->paper quality->oral (causal chain)",
+      "requires_hops": 3,
+      "reasoning_chain": ["Boston", "Alice's parents", "Alice", "CVPR paper results", "oral presentation"],
+      "ground_truth_facts": [
+        "Alice's parents live in Boston",
+        "Paper accepted to CVPR 2026",
+        "15% mAP improvement over baseline",
+        "Three strong accepts from reviewers",
+        "Selected for oral presentation"
+      ],
+      "irrelevant_facts": [
+        "Target latency is 50ms",
+        "Marcus is from robotics",
+        "The team uses CARLA simulator"
+      ]
+    },
+    {
+      "id": "eval_025",
+      "category": "multi_hop_entity_chain",
+      "query": "What family tradition does the person who beat BEVFusion participate in?",
+      "goal": "Requires: BEVFusion->paper->Alice->family->skiing at Stowe (3 hops)",
+      "requires_hops": 3,
+      "reasoning_chain": ["BEVFusion comparison", "CVPR paper", "Alice", "family", "skiing tradition"],
+      "ground_truth_facts": [
+        "Paper beats BEVFusion by 12%",
+        "Alice is the team lead",
+        "Skiing with family at Stowe",
+        "Dad goes skiing - family tradition"
+      ],
+      "irrelevant_facts": [
+        "Priya is working on camera backbone",
+        "Target latency is 50ms",
+        "The team uses Waymo dataset"
+      ]
+    }
+  ]
+}

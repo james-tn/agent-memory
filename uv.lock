@@ -59,6 +59,7 @@ dependencies = [
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "python-dotenv" },
+    { name = "sqlite-vec" },
     { name = "uvicorn", extra = ["standard"] },
 ]
 
@@ -83,6 +84,7 @@ requires-dist = [
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23.0" },
     { name = "pytest-mock", marker = "extra == 'dev'", specifier = ">=3.12.0" },
     { name = "python-dotenv", specifier = ">=1.1.1" },
+    { name = "sqlite-vec", specifier = ">=0.1.6" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.32.0" },
 ]
 provides-extras = ["dev"]
@@ -1533,6 +1535,18 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/a2/87/a6771e1546d97e7e041b6ae58d80074f81b7d5121207425c964ddf5cfdbd/sniffio-1.3.1.tar.gz", hash = "sha256:f4324edc670a0f49750a81b895f35c3adb843cca46f0530f79fc1babb23789dc", size = 20372 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/e9/44/75a9c9421471a6c4805dbf2356f7c181a29c1879239abab1ea2cc8f38b40/sniffio-1.3.1-py3-none-any.whl", hash = "sha256:2f6da418d1f1e0fddd844478f41680e794e6051915791a034ff65e5f100525a2", size = 10235 },
+]
+
+[[package]]
+name = "sqlite-vec"
+version = "0.1.7a2"
+source = { registry = "https://pypi.org/simple" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/07/3e/ec6ef1e18b4a9370740a2e5c33474468f1e75275a0bb7fec3fd6f9e95b34/sqlite_vec-0.1.7a2-py3-none-macosx_10_6_x86_64.whl", hash = "sha256:a08dd9396d494ac8970ba519a3931410f08c0c5eeadd0e1a2e02053789f6c877", size = 163783 },
+    { url = "https://files.pythonhosted.org/packages/f6/dd/e23fa64e1080720dc8972620fa410916b7054822d574c70211336bac1c09/sqlite_vec-0.1.7a2-py3-none-macosx_11_0_arm64.whl", hash = "sha256:b98d7af645d28c0b5c844bf1d99fe2103fe1320fe2bbf36d0713f0b36764fdcb", size = 165270 },
+    { url = "https://files.pythonhosted.org/packages/45/d2/2a04ea12023ba76bc7668ce984243a372cb26257c05b0df8284b93b8fa98/sqlite_vec-0.1.7a2-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:0ff6088435f49cbb97422171bd17d7bcc9b67c5e6890ece680e53a679dd0ff7c", size = 151632 },
+    { url = "https://files.pythonhosted.org/packages/30/80/1956290bf428da40d3ebbdb6673eebcfbb0d5085d7a70d9d9d9f6995a98c/sqlite_vec-0.1.7a2-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.manylinux1_x86_64.whl", hash = "sha256:0fb454ac72eda4f5fe0d49ded740bf90c397e8beced6099112d6937f98740202", size = 151584 },
+    { url = "https://files.pythonhosted.org/packages/67/44/823066a928b65dff2d8d7c82c9929b96c0b3846c9f5f9667f1377c53690f/sqlite_vec-0.1.7a2-py3-none-win_amd64.whl", hash = "sha256:b6c3365e0fb62ee6eceaba269c57792a100c52ebd564866a64f15596e50c3f42", size = 282080 },
 ]
 
 [[package]]

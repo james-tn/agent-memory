@@ -1,0 +1,303 @@
+{
+  "domain": "healthcare",
+  "description": "Healthcare assistant evaluation dataset - tests graph traversal for medical information",
+  "test_cases": [
+    {
+      "id": "health_eval_001",
+      "category": "basic_medication",
+      "query": "What medications is Michael currently taking?",
+      "goal": "List all current medications with dosages",
+      "ground_truth_facts": [
+        "Metformin 1000mg twice daily",
+        "Losartan 50mg once daily",
+        "Hydrochlorothiazide 12.5mg once daily",
+        "Baby aspirin once daily",
+        "Vitamin D 2000 IU daily"
+      ],
+      "requires_multi_hop": false
+    },
+    {
+      "id": "health_eval_002", 
+      "category": "allergy_critical",
+      "query": "What are Michael's drug allergies?",
+      "goal": "Find all allergies - critical safety information",
+      "ground_truth_facts": [
+        "Allergic to penicillin with severe reaction",
+        "Penicillin allergy causes hives and difficulty breathing",
+        "Allergic to sulfa drugs",
+        "Sulfa allergy causes rash"
+      ],
+      "requires_multi_hop": false
+    },
+    {
+      "id": "health_eval_003",
+      "category": "provider_lookup",
+      "query": "Who is Michael's cardiologist?",
+      "goal": "Find specialist for heart conditions",
+      "ground_truth_facts": [
+        "Dr. James Wilson is the cardiologist",
+        "Dr. Wilson manages blood pressure",
+        "Dr. Wilson prescribed the blood pressure medications"
+      ],
+      "requires_multi_hop": false
+    },
+    {
+      "id": "health_eval_004",
+      "category": "condition_treatment",
+      "query": "What medication treats Michael's diabetes?",
+      "goal": "Find medication -> treats -> condition relationship",
+      "ground_truth_facts": [
+        "Metformin 1000mg treats Type 2 diabetes",
+        "Metformin is taken twice daily",
+        "Dr. Garcia manages diabetes treatment"
+      ],
+      "requires_multi_hop": true,
+      "expected_hops": 2,
+      "traversal": "diabetes -> TREATS (reverse) -> Metformin"
+    },
+    {
+      "id": "health_eval_005",
+      "category": "medication_change",
+      "query": "Why was Michael's blood pressure medication changed?",
+      "goal": "Find medication change and reason",
+      "ground_truth_facts": [
+        "Lisinopril was switched to Losartan",
+        "The dry cough was a side effect of Lisinopril",
+        "ACE inhibitors like Lisinopril commonly cause cough",
+        "Losartan is an ARB that doesn't cause cough"
+      ],
+      "requires_multi_hop": true,
+      "expected_hops": 2,
+      "traversal": "medication change -> SIDE_EFFECT_OF (reverse) -> cough -> reason"
+    },
+    {
+      "id": "health_eval_006",
+      "category": "multi_hop_allergy_safety",
+      "query": "What antibiotics should Michael avoid because of his allergies?",
+      "goal": "Traverse allergy -> drug class -> related medications",
+      "ground_truth_facts": [
+        "Avoid penicillin-type antibiotics",
+        "Avoid amoxicillin",
+        "Avoid ampicillin",
+        "Avoid sulfa antibiotics like Bactrim",
+        "Azithromycin is safe alternative"
+      ],
+      "requires_multi_hop": true,
+      "expected_hops": 2,
+      "traversal": "patient -> ALLERGIC_TO -> penicillin -> related drugs"
+    },
+    {
+      "id": "health_eval_007",
+      "category": "multi_hop_side_effect",
+      "query": "What could be causing Michael's muscle cramps?",
+      "goal": "Traverse symptom -> SIDE_EFFECT_OF -> medication",
+      "ground_truth_facts": [
+        "HCTZ can cause potassium loss",
+        "Low potassium causes muscle cramps",
+        "Potassium supplement recommended",
+        "Eating bananas helps with potassium"
+      ],
+      "requires_multi_hop": true,
+      "expected_hops": 2,
+      "traversal": "muscle cramps -> SIDE_EFFECT_OF -> HCTZ -> potassium"
+    },
+    {
+      "id": "health_eval_008",
+      "category": "multi_hop_drug_interaction",
+      "query": "Why should Michael avoid ibuprofen?",
+      "goal": "Find drug interaction with blood pressure medications",
+      "ground_truth_facts": [
+        "NSAIDs like ibuprofen can raise blood pressure",
+        "Ibuprofen reduces effectiveness of Lisinopril/Losartan",
+        "Ibuprofen can affect kidneys",
+        "Tylenol is recommended as alternative"
+      ],
+      "requires_multi_hop": true,
+      "expected_hops": 2,
+      "traversal": "ibuprofen -> CONTRAINDICATED_WITH -> BP medications"
+    },
+    {
+      "id": "health_eval_009",
+      "category": "multi_hop_provider_condition",
+      "query": "Which doctor should Michael see about his ankle swelling?",
+      "goal": "Traverse symptom -> condition -> specialist",
+      "ground_truth_facts": [
+        "Ankle swelling could indicate heart or BP issues",
+        "Dr. Wilson is the cardiologist",
+        "The swelling was related to Lisinopril and sodium",
+        "HCTZ was added to treat the swelling"
+      ],
+      "requires_multi_hop": true,
+      "expected_hops": 3,
+      "traversal": "ankle swelling -> heart/BP concern -> SPECIALIST_FOR -> Dr. Wilson"
+    },
+    {
+      "id": "health_eval_010",
+      "category": "multi_hop_treatment_chain",
+      "query": "What medication was added to treat the fluid retention from blood pressure issues?",
+      "goal": "Traverse condition -> symptom -> treatment",
+      "ground_truth_facts": [
+        "Hydrochlorothiazide 12.5mg was added",
+        "HCTZ is a diuretic",
+        "It helps excrete excess fluid",
+        "The ankle swelling improved after starting HCTZ"
+      ],
+      "requires_multi_hop": true,
+      "expected_hops": 3,
+      "traversal": "BP issues -> edema -> TREATS (reverse) -> HCTZ"
+    },
+    {
+      "id": "health_eval_011",
+      "category": "multi_hop_measurement_condition",
+      "query": "What do Michael's A1C results indicate about his diabetes control?",
+      "goal": "Traverse measurement -> INDICATES -> condition status",
+      "ground_truth_facts": [
+        "A1C improved from 7.8% to 6.8%",
+        "6.8% indicates good diabetes control",
+        "Target A1C is under 7%",
+        "Walking and diet changes helped improvement"
+      ],
+      "requires_multi_hop": true,
+      "expected_hops": 2,
+      "traversal": "A1C measurement -> INDICATES -> diabetes control"
+    },
+    {
+      "id": "health_eval_012",
+      "category": "multi_hop_lifestyle_condition",
+      "query": "How has exercise affected Michael's diabetes?",
+      "goal": "Traverse lifestyle -> AFFECTS -> condition",
+      "ground_truth_facts": [
+        "Walking 30-40 minutes daily",
+        "A1C improved with exercise",
+        "Exercise improves insulin sensitivity",
+        "May be able to reduce Metformin if maintained"
+      ],
+      "requires_multi_hop": true,
+      "expected_hops": 2,
+      "traversal": "exercise -> AFFECTS -> diabetes -> improved A1C"
+    },
+    {
+      "id": "health_eval_013",
+      "category": "multi_hop_allergy_med_class",
+      "query": "Can Michael take the sulfa-based diuretic given his sulfa allergy?",
+      "goal": "Complex allergy cross-reactivity reasoning",
+      "ground_truth_facts": [
+        "HCTZ is technically sulfa-based",
+        "Cross-reactivity with sulfa antibiotics is low",
+        "Michael has been on HCTZ for months without problems",
+        "He can continue taking it safely"
+      ],
+      "requires_multi_hop": true,
+      "expected_hops": 3,
+      "traversal": "sulfa allergy -> drug class -> HCTZ -> no reaction observed"
+    },
+    {
+      "id": "health_eval_014",
+      "category": "multi_hop_symptom_investigation",
+      "query": "Was the ankle swelling from the medication or a heart problem?",
+      "goal": "Differential diagnosis through graph traversal",
+      "ground_truth_facts": [
+        "EKG was normal",
+        "Echocardiogram was normal",
+        "Swelling was from Lisinopril increase and sodium",
+        "Not a heart problem"
+      ],
+      "requires_multi_hop": true,
+      "expected_hops": 3,
+      "traversal": "ankle swelling -> possible causes -> tests -> diagnosis"
+    },
+    {
+      "id": "health_eval_015",
+      "category": "multi_hop_potassium_balance",
+      "query": "Why is Michael's potassium being monitored closely?",
+      "goal": "Complex medication interaction affecting labs",
+      "ground_truth_facts": [
+        "Losartan can raise potassium",
+        "HCTZ can lower potassium",
+        "They may balance each other",
+        "Potassium was 5.2 - upper normal",
+        "Avoid potassium supplements"
+      ],
+      "requires_multi_hop": true,
+      "expected_hops": 3,
+      "traversal": "potassium monitoring -> Losartan effect -> HCTZ effect -> balance"
+    },
+    {
+      "id": "health_eval_016",
+      "category": "temporal_progression",
+      "query": "How has Michael's blood pressure control changed over time?",
+      "goal": "Temporal reasoning across sessions",
+      "ground_truth_facts": [
+        "Started at 145/92",
+        "Lisinopril increased from 10mg to 20mg",
+        "HCTZ added for fluid retention",
+        "Now averaging around 130/84",
+        "Goal is under 130/80"
+      ],
+      "requires_multi_hop": true,
+      "expected_hops": 2,
+      "traversal": "blood pressure -> temporal progression -> current status"
+    },
+    {
+      "id": "health_eval_017",
+      "category": "multi_hop_safe_alternatives",
+      "query": "What allergy medication is safe for Michael to take?",
+      "goal": "Find safe medication considering all conditions",
+      "ground_truth_facts": [
+        "Claritin (loratadine) is safe",
+        "Avoid Claritin-D due to pseudoephedrine raising BP",
+        "Flonase nasal spray is safe",
+        "Benadryl not ideal for BP patients"
+      ],
+      "requires_multi_hop": true,
+      "expected_hops": 2,
+      "traversal": "allergy meds -> conditions check -> safe options"
+    },
+    {
+      "id": "health_eval_018",
+      "category": "multi_hop_provider_chain",
+      "query": "Who prescribed the medication that was causing the dry cough?",
+      "goal": "Traverse symptom -> medication -> prescriber",
+      "ground_truth_facts": [
+        "Dr. Wilson prescribed Lisinopril",
+        "Lisinopril caused the dry cough",
+        "Dr. Wilson is the cardiologist",
+        "Dr. Wilson later switched to Losartan"
+      ],
+      "requires_multi_hop": true,
+      "expected_hops": 3,
+      "traversal": "dry cough -> SIDE_EFFECT_OF -> Lisinopril -> PRESCRIBED (reverse) -> Dr. Wilson"
+    },
+    {
+      "id": "health_eval_019",
+      "category": "multi_hop_travel_safety",
+      "query": "What medication information should Michael bring for his Europe trip?",
+      "goal": "Compile critical travel health info",
+      "ground_truth_facts": [
+        "List of generic drug names",
+        "Medical alert bracelet for allergies",
+        "Penicillin allergy in Italian: Allergico alla penicillina",
+        "Keep medications in carry-on",
+        "Bring extra week supply"
+      ],
+      "requires_multi_hop": true,
+      "expected_hops": 2,
+      "traversal": "travel -> medications + allergies -> safety info"
+    },
+    {
+      "id": "health_eval_020",
+      "category": "multi_hop_complex_chain",
+      "query": "What test showed that the medication causing ankle swelling hadn't damaged Michael's heart?",
+      "goal": "Complex multi-hop: symptom -> medication -> concern -> test -> result",
+      "ground_truth_facts": [
+        "Echocardiogram was ordered",
+        "Echo came back normal",
+        "This ruled out heart damage",
+        "The swelling was from Lisinopril and sodium, not heart failure"
+      ],
+      "requires_multi_hop": true,
+      "expected_hops": 4,
+      "traversal": "ankle swelling -> Lisinopril -> heart concern -> echocardiogram -> normal"
+    }
+  ]
+}

@@ -17,7 +17,8 @@ dependencies = [
     "uvicorn[standard]>=0.32.0",
     "httpx>=0.27.0",
     "pydantic>=2.10.0",
-    "pydantic-settings>=2.6.0"
+    "pydantic-settings>=2.6.0",
+    "sqlite-vec>=0.1.6"
 ]
 
 [project.optional-dependencies]
@@ -28,7 +29,7 @@ dev = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["memory*", "agent*", "application*", "demo*", "cosmos_db_search*"]
+include = ["memory*", "agent*", "application*", "demos*", "cosmos_db_search*"]
 
 [tool.uv]
 prerelease = "allow"

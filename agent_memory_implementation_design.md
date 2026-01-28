@@ -4,80 +4,104 @@
 
 ## 1. Executive Summary
 
-This document outlines the implementation design for the **Agent Memory Service**, integrating with **Microsoft Agent Framework** and **Azure CosmosDB** as the vector database backend. The implementation will demonstrate a financial advisory agent scenario with memory capabilities for personalized, context-aware interactions.
+This document outlines the implementation design for the **Agent Memory Service**, integrating with **Microsoft Agent Framework** and **Azure CosmosDB** as the vector database backend. The service provides agents with human-like memory capabilities for personalized, context-aware interactions across sessions.
 
 ---
 
-## 2. Architecture Overview
+## 2. Inspiration from Human Memory
 
-### 2.1 Technology Stack
+The design is inspired by how humans manage memory and learning:
+
+- **Active vs. Long-Term Memory:**  
+  Humans keep only key details in short-term (active) memory while storing the rest in long-term memory or external aids. When needed, they retrieve details using associative recall.
+
+- **Reflection and Learning:**  
+  After interactions, humans naturally reflect on events, extracting key insights and lessons learned to store for future use.
+
+- **Recency, Frequency, and Importance:** *(Planned - not yet implemented)*  
+  Recent and frequently encountered information would be prioritized in active memory. Information deemed important through reflection would be retained longer or recalled more easily. Currently, retrieval uses vector similarity only; recency/frequency boosts are a future enhancement.
+
+---
+
+## 3. Architecture Overview
+
+### 3.1 Technology Stack
 
 | Component | Technology | Purpose |
 |-----------|-----------|---------|
 | **Agent Framework** | Microsoft Agent Framework (v1.0.0b251016) | Core agent orchestration |
-| **LLM Provider** | Azure OpenAI (gpt-5-nano) | Chat completion & reasoning |
-| **Embedding Model** | Azure OpenAI (text-embedding-ada-002) | Vector embeddings generation |
-| **Vector Database** | Azure CosmosDB for NoSQL | Memory storage & retrieval |
-| **Authentication** | Azure Service Principal | CosmosDB & OpenAI access |
+| **LLM Provider** | Azure OpenAI (configurable via env vars) | Chat completion & reasoning |
+| **Embedding Model** | Azure OpenAI (text-embedding-3-large) | Vector embeddings generation |
+| **Database Backend** | SQLite (default), CosmosDB, or PostgreSQL | Memory storage & retrieval |
+| **Vector Search** | sqlite-vec, CosmosDB VectorDistance, or pgvector | Semantic similarity search |
+| **Authentication** | Azure Service Principal (for cloud backends) | CosmosDB & OpenAI access |
 | **Language** | Python 3.12+ | Implementation |
 
-### 2.2 System Components
+### 3.2 System Components
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│           Financial Advisor Agent (Main Agent)              │
-│         Microsoft Agent Framework + Memory Wrapper          │
-│  Tools: [retrieve_user_facts, ...]                         │
+│                     Your AI Agent                            │
+│         Microsoft Agent Framework + ContextProvider          │
+│  context_providers=[CosmosMemoryProvider]                   │
 └────────────────┬────────────────────────────────────────────┘
                  │
-                 ├─────────────────────────────────────────┐
-                 │                                         │
-    ┌────────────▼──────────────┐         ┌──────────────▼─────────────┐
-    │   Agent Memory Service    │         │   Azure OpenAI Service     │
-    │                           │         │                            │
-    │  ┌────────────────────┐   │         │  • gpt-5-nano (Main + Reflect) │
-    │  │ Current Memory     │   │         │  • gpt-5-nanoo-mini (CFR)      │
-    │  │ Keeper             │   │         │  • Ada-002 (Embeddings)   │
-    │  │ (Context Builder)  │   │         └────────────────────────────┘
-    │  └────────────────────┘   │
-    │  ┌────────────────────┐   │
-    │  │ CFR Mini-Agent     │◄──┼─── Tool call from Main Agent
-    │  │ (gpt-5-nanoo-mini)      │   │
-    │  │ Tools:             │   │
-    │  │ • search_interact. │   │
-    │  │ • search_insights  │   │
-    │  │ • search_summaries │   │
-    │  └────────────────────┘   │
-    │  ┌────────────────────┐   │
-    │  │ Reflection Process │   │
-    │  │ • Session reflect. │   │
-    │  │ • Long-term synth. │   │
+                 │  (Remote mode: HTTP)  OR  (Embedded mode: Direct)
+                 │
+    ┌────────────▼──────────────────────────────────────────┐
+    │         FastAPI Memory Service (Port 8000)            │
+    │                                                        │
+    │  • Session Pool (LRU Cache)  - Configurable size/TTL  │
+    │  • Background Eviction       - Periodic cleanup        │
+    │  • Health & Monitoring       - /health, /stats         │
+    │                                                        │
+    └────────────┬──────────────────────────────────────────┘
+                 │
+    ┌────────────▼──────────────┐         ┌─────────────────────────┐
+    │  Memory Orchestrator      │         │  Azure OpenAI Service   │
+    │                           │         │                         │
+    │  ┌────────────────────┐   │         │  • REASONING_MODEL      │
+    │  │ Current Memory     │   │         │    (gpt-4o, gpt-5)      │
+    │  │ Keeper             │   │         │  • PROCESSING_MODEL     │
+    │  │ (k-turn buffer)    │   │         │    (gpt-4o-mini)        │
+    │  └────────────────────┘   │         │  • EMB_DEPLOYMENT       │
+    │  ┌────────────────────┐   │         │    (text-embedding-3)   │
+    │  │ CFR Agent          │◄──┼───┐     └─────────────────────────┘
+    │  │ (REASONING_MODEL)  │   │   │
+    │  │ Tools:             │   │   │ Hidden tool injection
+    │  │ • search_interact. │   │   │ (recall_facts)
+    │  │ • search_insights  │   │   │
+    │  │ • search_summaries │   │   │
+    │  └────────────────────┘   │   │
+    │  ┌────────────────────┐   │   │
+    │  │ Reflection Process │   │   │
+    │  │ • Session reflect. │   │   │
+    │  │ • Auto long-term   │◄──┼───┘ Every N sessions
     │  └────────────────────┘   │
     └────────────┬──────────────┘
                  │
     ┌────────────▼──────────────┐
-    │   Azure CosmosDB NoSQL    │
-    │  Vector + Full-Text       │
-    │  ┌────────────────────┐   │
-    │  │ interactions       │   │  (Multi-turn chunks with 2 vectors)
-    │  │ (Container)        │   │
-    │  └────────────────────┘   │
-    │  ┌────────────────────┐   │
-    │  │ insights           │   │  (Session + long-term insights)
-    │  │ (Container)        │   │
-    │  └────────────────────┘   │
-    │  ┌────────────────────┐   │
-    │  │ session_summaries  │   │  (Session metadata)
-    │  │ (Container)        │   │
-    │  └────────────────────┘   │
+    │   Database Backend        │
+    │   (Abstraction Layer)     │
+    │                           │
+    │  Options:                 │
+    │  • SQLite + sqlite-vec    │  ← Default (no server)
+    │  • Azure CosmosDB NoSQL   │  ← Enterprise (hybrid search)
+    │  • PostgreSQL + pgvector  │  ← Future
+    │                           │
+    │  Tables/Containers:       │
+    │  • interactions           │  ← Conversation chunks (k-turn)
+    │  • session_summaries      │  ← Session metadata + summaries
+    │  • insights               │  ← Session + long-term insights
+    │                           │
     └───────────────────────────┘
 ```
 
 ---
 
-## 3. CosmosDB Schema Design
+## 4. CosmosDB Schema Design
 
-### 3.1 Database: `financial_advisor_memory`
+### 4.1 Database: `agent_memory_db`
 
 #### Container 1: `interactions`
 Stores multi-turn conversation chunks with vector embeddings for semantic search.
@@ -180,7 +204,7 @@ Stores extracted insights at two levels: session-based and long-term aggregated.
 
 **Notes:**
 - **Session insights**: Generated at the end of each session. Can span multiple sessions if the reflection process aggregates related sessions. The `reflection_flag` can be "insight" (significant insights found) or "no-insight" (trivial session). Sessions with "no-insight" are kept for future aggregation.
-- **Long-term insight**: One single document per user that aggregates all processed session insights into a comprehensive user profile. Updated manually on-demand.
+- **Long-term insight**: One single document per user that aggregates all processed session insights into a comprehensive user profile. **Automatically updated every N sessions** (default: 5) via `longterm_synthesis_frequency` config.
 - **processed** field: Marks whether a session insight has been incorporated into long-term reflection.
 - **category**: Defined by reflection prompt (e.g., "demographics", "financial_goals", "risk_profile", "concern", "preference")
 
@@ -215,17 +239,17 @@ Stores session-level metadata and summaries for quick context loading and reflec
 
 ---
 
-## 4. Core Service Components
+## 5. Core Service Components
 
-### 4.1 Memory Service Core (`memory_service.py`)
+### 5.1 Memory Orchestrator (`orchestrator.py`)
 
-**Class: `AgentMemoryService`**
+**Class: `MemoryServiceOrchestrator`**
 
 ```python
-class AgentMemoryService:
+class MemoryServiceOrchestrator:
     """
-    Core orchestrator for agent memory operations.
-    Integrates with Microsoft Agent Framework and CosmosDB.
+    Main orchestration layer for Agent Memory Service.
+    Coordinates CurrentMemoryKeeper, CFR Agent, and ReflectionProcess.
     """
     
     def __init__(
@@ -620,37 +644,52 @@ def create_memory_retrieval_tool(memory_service: AgentMemoryService):
 ```python
 # config.py
 
+@dataclass
 class MemoryConfig:
     # Current Memory Keeper
-    K_TURN_BUFFER = 10  # Buffer size before pruning/summarization
-    N_ACTIVE_TURNS = 5  # Number of recent turns to keep in active context
-    NUM_RECENT_SESSIONS_FOR_INIT = 2  # Number of recent session summaries to load at session start
+    buffer_size: int = 10  # Turns before summarization (K_TURN_BUFFER)
+    active_turns: int = 5  # Recent turns in context (N_ACTIVE_TURNS)
+    num_recent_sessions_for_init: int = 2  # Recent session summaries to load
     
     # Fact Retrieval
-    RETRIEVAL_MODE = "on-demand"  # Agent calls CFR via tool
-    TOP_K_FACTS = 5
-    SIMILARITY_THRESHOLD = 0.75
+    retrieval_mode: str = "on-demand"  # Agent calls CFR via tool
+    top_k_results: int = 5
+    similarity_threshold: float = 0.75
+    
+    # Auto-Enrichment (Keyword-triggered memory search)
+    auto_enrich_context: bool = False  # Enable automatic memory search
+    enrichment_trigger_keywords: List[str] = [  # Keywords that trigger search
+        "remember", "recall", "previous", "last time", "before",
+        "allergy", "allergies", "medication", "prescribe",
+        "history", "past", "earlier", "mentioned"
+    ]
+    
+    # Session Management
+    auto_manage_sessions: bool = True  # Auto-end sessions in __aexit__
     
     # Reflection
-    REFLECTION_TRIGGER = "session_end"  # Run session reflection at end of each session
-    LONGTERM_REFLECTION_TRIGGER = "manual"  # Manually triggered
-    INSIGHT_CONFIDENCE_THRESHOLD = 0.7
-    MIN_SESSIONS_FOR_AGGREGATION = 3  # Min "no-insight" sessions before aggregation
+    trigger_reflection_on_end: bool = True  # Run session reflection at end
+    longterm_synthesis_frequency: int = 5  # Auto-synthesize every N sessions
+    min_confidence: float = 0.7  # Insight confidence threshold
+    min_sessions_for_aggregation: int = 3  # Min sessions before aggregation
     
     # CosmosDB
-    COSMOS_DB_NAME = "financial_advisor_memory"
-    INTERACTIONS_CONTAINER = "interactions"
-    INSIGHTS_CONTAINER = "insights"
-    SUMMARIES_CONTAINER = "session_summaries"
+    database_name: str = "agent_memory_db"
+    interactions_container: str = "interactions"
+    summaries_container: str = "session_summaries"
+    insights_container: str = "insights"
     
-    # Azure OpenAI
-    CHAT_DEPLOYMENT = "gpt-5-nano"  # Main agent + reflection
-    MINI_DEPLOYMENT = "gpt-5-nanoo-mini"  # CFR agent + metadata generation
-    EMBEDDING_MODEL = "text-embedding-ada-002"
-    EMBEDDING_DIMENSIONS = 1536
+    # Azure OpenAI (configured via environment variables)
+    # AZURE_OPENAI_REASONING_MODEL - Main agent, CFR, reflection (gpt-4o, gpt-5)
+    # AZURE_OPENAI_PROCESSING_MODEL - Metadata generation (gpt-4o-mini)
+    # AZURE_OPENAI_EMB_DEPLOYMENT - Embeddings (text-embedding-3-large)
+    reasoning_model: Optional[str] = None  # From env: AZURE_OPENAI_REASONING_MODEL
+    processing_model: Optional[str] = None  # From env: AZURE_OPENAI_PROCESSING_MODEL
+    embedding_model: str = "text-embedding-3-large"
+    embedding_dimensions: int = 3072
     
-    # Reflection Categories (Financial Advisor)
-    INSIGHT_CATEGORIES = [
+    # Reflection Categories (customizable per domain)
+    insight_categories: List[str] = [
         "demographics",
         "financial_goals",
         "risk_profile",
@@ -658,6 +697,27 @@ class MemoryConfig:
         "concern",
         "preference"
     ]
+```
+
+### 7.1 Session Pool Configuration (Server Mode)
+
+```python
+# Server configuration (environment variables)
+MAX_SESSIONS = 1000        # Maximum sessions in LRU cache
+SESSION_TTL_MINUTES = 30   # Session cache TTL
+EVICTION_INTERVAL_SECONDS = 60  # Background cleanup interval
+```
+
+### 7.2 Hidden Tool Injection Configuration
+
+```python
+# provider_config.py
+
+@dataclass
+class CosmosMemoryProviderConfig:
+    inject_recall_tool: bool = True  # Enable hidden tool injection
+    recall_tool_name: str = "recall_facts"  # Tool name
+    recall_tool_description: str = "Search long-term memory for relevant facts"
 ```
 
 ---
@@ -786,29 +846,146 @@ Output: Updated summary text.
 ```
 memory/
 ├── __init__.py
-├── memory_service.py           # Core orchestrator
-├── current_memory_keeper.py    # Context management + k-turn pruning
-├── fact_retrieval.py            # CFR mini-agent with search tools
-├── reflection.py                # Session + long-term reflection
-├── cosmos_utils.py              # CosmosDB utility functions
-├── config.py                    # Configuration parameters
-├── models.py                    # Pydantic models
-├── prompts.py                   # All prompt templates
-└── memory_aware_agent.py       # Agent wrapper for memory integration
+├── orchestrator.py                    # Main coordination layer (MemoryServiceOrchestrator)
+├── current_memory_keeper.py           # K-turn buffer management + summarization
+├── fact_retrieval.py                  # CFR agent with hybrid search tools
+├── reflection.py                      # Session + long-term reflection
+├── cosmos_utils.py                    # CosmosDB utilities + embeddings (legacy)
+├── cosmos_memory_provider.py          # Remote ContextProvider (HTTP-based)
+├── cosmos_memory_provider_embedded.py # Embedded ContextProvider (direct CosmosDB)
+├── cosmos_agent_memory.py             # Memory wrapper for direct usage
+├── session_pool.py                    # LRU session cache with TTL eviction
+├── provider_config.py                 # ContextProvider configuration
+├── config.py                          # Memory configuration parameters
+├── models.py                          # Pydantic data models
+├── prompts.py                         # All prompt templates
+└── db/                                # Database abstraction layer
+    ├── __init__.py                    # Public exports
+    ├── base.py                        # Abstract MemoryDatabase interface
+    ├── sqlite_backend.py              # SQLite + sqlite-vec backend
+    ├── cosmos_backend.py              # Azure CosmosDB backend
+    ├── factory.py                     # Database factory functions
+    └── adapters.py                    # Compatibility adapters
+
+server/
+├── __init__.py
+├── config.py                          # Server configuration
+└── main.py                            # FastAPI service
 
 demo/
 ├── __init__.py
-├── setup_cosmosdb.py           # Create database, containers, indexes
-├── setup_demo_data.py          # Pre-populate with sample data
-├── scenario_1_long_context.py  # Demo: Memory retrieval from past sessions
-├── scenario_2_reflection.py    # Demo: Session initialization with insights
-└── scenario_3_compression.py   # Demo: Real-time context compression
+├── setup_cosmosdb.py                  # Create database, containers, indexes
+├── hidden_tool_demo.py                # Hidden tool injection demo
+├── hidden_tool_demo_remote.py         # Remote service hidden tool demo
+├── comparison_tool_injection_demo.py  # Compare hidden vs explicit tools
+├── auto_enrichment_demo.py            # Auto-enrichment context demo
+├── interactive_demo_live.py           # Interactive demo with live CosmosDB
+└── interactive_demo_remote.py         # Interactive demo via remote service
+
+examples/
+├── demo1_financial_advisor.py         # Multi-session financial advisor
+├── demo1_financial_advisor_embedded.py # Embedded provider version
+├── demo2_shopping_assistant.py        # Shopping assistant example
+├── demo3_learning_assistant.py        # Learning assistant example
+├── demo4_medical_assistant.py         # Medical assistant with allergy check
+├── simple_usage.py                    # Minimal usage example
+└── simple_usage_sqlite.py             # SQLite database abstraction demo
 
 tests/
-├── test_memory_service.py
-├── test_memory_keeper.py
+├── test_cosmos_agent_memory.py
+├── test_cosmos_memory_provider.py
+├── test_current_memory_keeper.py
+├── test_db_abstraction.py             # Database abstraction layer tests
 ├── test_fact_retrieval.py
-└── test_reflection.py
+├── test_orchestrator.py
+├── test_reflection.py
+└── test_session_management.py
+
+infra/
+├── main.bicep                         # Azure Bicep deployment
+├── main.bicepparam                    # Bicep parameters
+└── modules/                           # Modular Bicep resources
+```
+
+---
+
+## 9.1 Database Abstraction Layer (`memory/db/`)
+
+The database abstraction layer enables the Agent Memory Service to work with multiple database backends:
+
+| Backend | Status | Server Required | Hybrid Search |
+|---------|--------|-----------------|---------------|
+| **SQLite + sqlite-vec** | ✅ Implemented | No (embedded) | No (vector-only) |
+| **Azure CosmosDB** | ✅ Implemented | Yes (Azure) | Yes (RRF) |
+| **PostgreSQL + pgvector** | 🔄 Planned | Yes | No (vector-only) |
+
+### Key Components:
+
+**`base.py`** - Abstract interface:
+- `MemoryDatabase`: Abstract base class all backends implement
+- `ContainerType`: Enum for interactions, insights, session_summaries
+- `SearchResult`: Unified search result format
+- `DatabaseCapabilities`: Describes backend features
+
+**`sqlite_backend.py`** - SQLite implementation:
+- Uses sqlite-vec extension for native vector search
+- Falls back to Python cosine similarity if extension unavailable
+- Stores vectors as BLOB, JSON fields as TEXT
+- No server required - single file database
+
+**`cosmos_backend.py`** - CosmosDB implementation:
+- Native VectorDistance for vector search
+- RRF (Reciprocal Rank Fusion) for hybrid search
+- FullTextScore for text search
+- Enterprise-grade scalability
+
+**`factory.py`** - Database creation:
+```python
+from memory.db import create_database, DatabaseType
+
+# SQLite (default, no server)
+db = create_database(
+    db_type=DatabaseType.SQLITE,
+    embedding_provider=embedder,
+    db_path="memory.db"
+)
+
+# CosmosDB (enterprise)
+db = create_database(
+    db_type=DatabaseType.COSMOSDB,
+    embedding_provider=embedder,
+    connection_string="..."
+)
+```
+
+**`adapters.py`** - Compatibility layer:
+- `ContainerAdapter`: ContainerProxy-like interface for existing code
+- `CosmosUtilsAdapter`: CosmosUtils-like interface for existing code
+- `DatabaseBundle`: Provides all adapters needed by orchestrator
+
+### Usage Pattern:
+
+```python
+from memory.db import create_database, DatabaseType, ContainerType
+
+# Create and initialize database
+db = create_database(DatabaseType.SQLITE, embedding_provider=embedder)
+async with db:
+    # Store document
+    await db.upsert(ContainerType.INTERACTIONS, {
+        "id": "int-1",
+        "user_id": "user123",
+        "content": "...",
+        "content_vector": embedder.get_embedding("...")
+    })
+    
+    # Vector search
+    results = await db.vector_search(
+        ContainerType.INTERACTIONS,
+        query_embedding=embedder.get_embedding("query"),
+        top_k=5,
+        filters={"user_id": "user123"}
+    )
 ```
 
 ---
@@ -816,21 +993,29 @@ tests/
 ## 10. Implementation Phases
 
 ### Phase 1: Foundation (Days 1-2)
-- [ ] CosmosDB setup (create database, containers, indexes)
-- [ ] Core data models (`models.py`)
-- [ ] Memory index implementation (`memory_index.py`)
-- [ ] Embedding utilities
+- [x] CosmosDB setup (create database, containers, indexes)
+- [x] Core data models (`models.py`)
+- [x] Memory index implementation (`memory_index.py`)
+- [x] Embedding utilities
 
 ### Phase 2: Core Components (Days 3-4)
-- [ ] Current Memory Keeper
-- [ ] Contextual Fact Retrieval
-- [ ] Reflection Process
-- [ ] Memory Service orchestrator
+- [x] Current Memory Keeper
+- [x] Contextual Fact Retrieval
+- [x] Reflection Process
+- [x] Memory Service orchestrator
 
 ### Phase 3: Agent Integration (Day 5)
-- [ ] Memory-aware agent wrapper
-- [ ] Tool integration
-- [ ] Thread management with memory
+- [x] Memory-aware agent wrapper
+- [x] Tool integration
+- [x] Thread management with memory
+
+### Phase 4: Database Abstraction (Added)
+- [x] Abstract MemoryDatabase interface
+- [x] SQLite backend with sqlite-vec
+- [x] CosmosDB backend (refactored)
+- [x] Factory pattern for database creation
+- [x] Compatibility adapters for existing code
+- [ ] PostgreSQL backend (future)
 
 ### Phase 4: Demo & Testing (Days 6-7)
 - [ ] Demo data generation
@@ -862,14 +1047,16 @@ tests/
 | **Content Format** | Flattened text: `user: ...\nassistant: ...` | Preserves exact conversation flow |
 | **Vector Fields** | 2 vectors per interaction (content + summary) | Better retrieval: detailed + high-level |
 | **Insight Types** | session + long_term | Clear separation of granularity |
-| **Long-term Insights** | Single document per user | Simplified aggregation, updated manually |
+| **Long-term Insights** | Single document per user, **auto-synthesized every N sessions** | Simplified aggregation, automatic lifecycle |
 | **Session Init Block** | Static block loaded once at session start | Consistent baseline context |
 | **Summarization** | Cumulative update (old + new k turns → new summary) | Maintains full conversation arc |
 | **Post-Summarization** | Store in interactions container, remove from active | Efficient memory, preserved in DB |
-| **CFR Architecture** | Mini-agent with search tools | Intelligent, flexible retrieval |
+| **CFR Architecture** | Agent with hybrid search tools (REASONING_MODEL) | Intelligent, flexible retrieval |
 | **CFR Container Choice** | Agent decides (interactions, insights, or both) | Context-aware search strategy |
-| **No-insight Sessions** | Kept for future aggregation (not tracked separately) | Enables batch reflection later |
-| **Reflection Trigger** | Session: automatic; Long-term: manual | Controlled aggregation |
+| **Integration Pattern** | ContextProvider (not wrapper) | Non-invasive, Agent Framework native |
+| **Hidden Tool Injection** | Auto-inject `recall_facts` tool via `invoking()` | Zero-config memory search |
+| **Session Pooling** | LRU cache with TTL eviction | Production performance |
+| **Reflection Trigger** | Session: automatic; Long-term: **automatic every N sessions** | Controlled, automatic lifecycle |
 
 ### 🔄 Workflow Summary
 
@@ -879,19 +1066,19 @@ tests/
 2. Conversation → Accumulate k turns → Prune (summarize + store interaction doc)
 3. Keep N active turns + cumulative summary
 4. Session End → Session reflection → Extract insights (or mark no-insight)
-5. Manual Trigger → Long-term reflection → Update user profile
+5. Every N sessions → Auto long-term synthesis → Update user profile
 ```
 
 **Reflection Flow:**
 ```
-Session Reflection:
+Session Reflection (automatic at session end):
   ├─ If insights found → Create session insight docs (processed=false)
   └─ If no insights → Mark session (reflection_status=no-insight)
 
-Long-term Reflection (manual):
+Long-term Synthesis (automatic every N sessions):
   ├─ Gather unprocessed session insights
   ├─ Synthesize with baseline long-term insight
-  ├─ Update long-term insight document
+  ├─ Update long-term insight document (longterm-{user_id})
   └─ Mark session insights as processed=true
 ```
 
@@ -911,9 +1098,8 @@ Long-term Reflection (manual):
 
 ## 14. References
 
-- **Conceptual Design:** `agent_memory_design.md`
+- **README:** `README.md` - Quick start and usage guide
 - **Agent Framework Sample:** `agent/azure_chat_client_with_thread.py`
-- **CosmosDB Vector Search:** `cosmos_db_search/intelligent_search_cosmos.py`
 - **Microsoft Agent Framework Docs:** https://github.com/microsoft/agent-framework
 - **Azure CosmosDB Vector Search:** https://learn.microsoft.com/azure/cosmos-db/
 
@@ -1076,10 +1262,12 @@ This context is prepended to the thread's message history, providing the agent w
 - ✅ Works with any agent instructions and tools
 - ✅ Compatible with multiple threads per agent
 - ✅ Supports both sync and async patterns
+- ✅ Hidden tool injection (`recall_facts`) for on-demand memory search
+- ✅ Auto-enrichment with keyword detection (optional)
 
 ---
 
 **Document Status:** ✅ Implemented and Tested  
-**Last Updated:** October 29, 2025  
-**Version:** 2.1 (Added Agent Framework Integration section)  
-**Author:** Agent Memory Service Implementation Team
+**Last Updated:** January 26, 2026  
+**Version:** 3.0 (Consolidated design doc, updated to match implementation)  
+**Author:** Agent Memory Service Team

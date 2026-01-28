@@ -1,0 +1,760 @@
+{
+  "timestamp": "2026-01-20T23:35:54.034083",
+  "summary": {
+    "total_cases": 20,
+    "sam_wins": 6,
+    "vector_wins": 17,
+    "ties": -3,
+    "avg_sam_precision": 0.02525974025974026,
+    "avg_sam_recall": 0.2541666666666667,
+    "avg_sam_llm_score": 2.9,
+    "avg_vector_precision": 0.09,
+    "avg_vector_recall": 0.22666666666666666,
+    "avg_vector_llm_score": 5.8
+  },
+  "results": [
+    {
+      "test_id": "health_eval_001",
+      "category": "basic_medication",
+      "query": "What medications is Michael currently taking?",
+      "ground_truth": [
+        "Metformin 1000mg twice daily",
+        "Losartan 50mg once daily",
+        "Hydrochlorothiazide 12.5mg once daily",
+        "Baby aspirin once daily",
+        "Vitamin D 2000 IU daily"
+      ],
+      "sam": {
+        "retrieved": [
+          "The user has been experiencing ankle swelling for about a week.",
+          "The user's ankle swelling is bilateral.",
+          "The user has experienced ankle swelling for about a week.",
+          "The user has taken HCTZ for months without issues.",
+          "Michael's ankle swelling improved after starting HCTZ."
+        ],
+        "precision": 0.047619047619047616,
+        "recall": 0.4,
+        "llm_score": 4
+      },
+      "vector": {
+        "retrieved": [
+          "Michael occasionally takes ibuprofen.",
+          "Michael occasionally takes ibuprofen.",
+          "Michael takes Hydrochlorothiazide.",
+          "Michael takes Metformin.",
+          "Michael takes Metformin."
+        ],
+        "precision": 0.1,
+        "recall": 0.2,
+        "llm_score": 6
+      },
+      "sam_wins": false,
+      "explanation": "Method B retrieved four of the five ground truth medications (Metformin, Losartan, Hydrochlorothiazide, and baby aspirin), while Method A only captured Losartan and Hydrochlorothiazide. Method B also contained less irrelevant symptom and lab data compared to Method A\u2019s substantial noise. Overall, Method B provided more directly useful information for answering the medication-focused query."
+    },
+    {
+      "test_id": "health_eval_002",
+      "category": "allergy_critical",
+      "query": "What are Michael's drug allergies?",
+      "ground_truth": [
+        "Allergic to penicillin with severe reaction",
+        "Penicillin allergy causes hives and difficulty breathing",
+        "Allergic to sulfa drugs",
+        "Sulfa allergy causes rash"
+      ],
+      "sam": {
+        "retrieved": [
+          "The user has taken HCTZ for months without issues.",
+          "Michael's ankle swelling improved after starting HCTZ.",
+          "HCTZ improved Michael's ankle swelling.",
+          "HCTZ lowers potassium.",
+          "HCTZ is a sulfa-based diuretic."
+        ],
+        "precision": 0.025,
+        "recall": 0.25,
+        "llm_score": 4
+      },
+      "vector": {
+        "retrieved": [
+          "Michael is allergic to sulfa drugs.",
+          "Michael is allergic to sulfa drugs.",
+          "Michael is allergic to Sulfa drugs.",
+          "Michael is allergic to Sulfa drugs.",
+          "Michael is allergic to Sulfa drugs."
+        ],
+        "precision": 0.1,
+        "recall": 0.25,
+        "llm_score": 9
+      },
+      "sam_wins": false,
+      "explanation": "Method B retrieved both key allergy types\u2014penicillin and sulfa\u2014and included a ground\u2011truth symptom detail (sulfa causes rash). Method A mixed relevant facts with substantial unrelated medication data, creating more noise. Therefore, Method B is more complete and directly useful for answering the query."
+    },
+    {
+      "test_id": "health_eval_003",
+      "category": "provider_lookup",
+      "query": "Who is Michael's cardiologist?",
+      "ground_truth": [
+        "Dr. James Wilson is the cardiologist",
+        "Dr. Wilson manages blood pressure",
+        "Dr. Wilson prescribed the blood pressure medications"
+      ],
+      "sam": {
+        "retrieved": [
+          "The user has taken HCTZ for months without issues.",
+          "Michael's ankle swelling improved after starting HCTZ.",
+          "HCTZ improved Michael's ankle swelling.",
+          "HCTZ lowers potassium.",
+          "HCTZ is a sulfa-based diuretic."
+        ],
+        "precision": 0.025,
+        "recall": 0.3333333333333333,
+        "llm_score": 2
+      },
+      "vector": {
+        "retrieved": [
+          "Dr. James Wilson is Michael's cardiologist.",
+          "Dr. James Wilson is Michael\u2019s cardiologist.",
+          "Dr. James Wilson is Michael\u2019s cardiologist.",
+          "Dr. Maria Garcia is Michael's endocrinologist.",
+          "Dr. Maria Garcia is Michael\u2019s endocrinologist."
+        ],
+        "precision": 0.1,
+        "recall": 0.3333333333333333,
+        "llm_score": 8
+      },
+      "sam_wins": false,
+      "explanation": "Method B directly retrieves the key ground truth fact \u2014 that Dr. James Wilson is Michael\u2019s cardiologist \u2014 multiple times and with high similarity, along with only minimal additional but still relevant context. Method A retrieves no information about the cardiologist and is filled with irrelevant medication and symptom facts. Therefore, Method B captures more ground truth, has far less noise, and is clearly more useful for answering the query."
+    },
+    {
+      "test_id": "health_eval_004",
+      "category": "condition_treatment",
+      "query": "What medication treats Michael's diabetes?",
+      "ground_truth": [
+        "Metformin 1000mg treats Type 2 diabetes",
+        "Metformin is taken twice daily",
+        "Dr. Garcia manages diabetes treatment"
+      ],
+      "sam": {
+        "retrieved": [
+          "The user has taken HCTZ for months without issues.",
+          "Michael's ankle swelling improved after starting HCTZ.",
+          "HCTZ improved Michael's ankle swelling.",
+          "HCTZ lowers potassium.",
+          "HCTZ is a sulfa-based diuretic."
+        ],
+        "precision": 0.0,
+        "recall": 0.0,
+        "llm_score": 6
+      },
+      "vector": {
+        "retrieved": [
+          "Michael has diabetes.",
+          "Michael has diabetes.",
+          "Michael takes Metformin.",
+          "Michael takes Metformin.",
+          "Michael has Type 2 diabetes."
+        ],
+        "precision": 0.0,
+        "recall": 0.0,
+        "llm_score": 8
+      },
+      "sam_wins": false,
+      "explanation": "Method B directly retrieved the key ground truth fact that Michael takes Metformin for his Type 2 diabetes, with minimal irrelevant information. Method A included many unrelated entities and noise, even though it contained Metformin, making B more precise and useful for answering the query."
+    },
+    {
+      "test_id": "health_eval_005",
+      "category": "medication_change",
+      "query": "Why was Michael's blood pressure medication changed?",
+      "ground_truth": [
+        "Lisinopril was switched to Losartan",
+        "The dry cough was a side effect of Lisinopril",
+        "ACE inhibitors like Lisinopril commonly cause cough",
+        "Losartan is an ARB that doesn't cause cough"
+      ],
+      "sam": {
+        "retrieved": [
+          "The user has taken HCTZ for months without issues.",
+          "Michael's ankle swelling improved after starting HCTZ.",
+          "HCTZ improved Michael's ankle swelling.",
+          "HCTZ lowers potassium.",
+          "HCTZ is a sulfa-based diuretic."
+        ],
+        "precision": 0.05,
+        "recall": 0.5,
+        "llm_score": 7
+      },
+      "vector": {
+        "retrieved": [
+          "Michael has high blood pressure.",
+          "Michael has high blood pressure.",
+          "Michael has high blood pressure.",
+          "Michael previously had blood pressure of 145/92.",
+          "Michael has Hypertension."
+        ],
+        "precision": 0.1,
+        "recall": 0.25,
+        "llm_score": 4
+      },
+      "sam_wins": true,
+      "explanation": "Method A retrieved the key ground\u2011truth details: the switch from Lisinopril to Losartan and the reason (persistent dry cough), plus context that ACE inhibitors cause cough and Losartan is the replacement. Method B mostly returned generic hypertension facts with little relevance and included repeated noise. Therefore, Method A is more useful and aligned with the query."
+    },
+    {
+      "test_id": "health_eval_006",
+      "category": "multi_hop_allergy_safety",
+      "query": "What antibiotics should Michael avoid because of his allergies?",
+      "ground_truth": [
+        "Avoid penicillin-type antibiotics",
+        "Avoid amoxicillin",
+        "Avoid ampicillin",
+        "Avoid sulfa antibiotics like Bactrim",
+        "Azithromycin is safe alternative"
+      ],
+      "sam": {
+        "retrieved": [
+          "The user has been experiencing ankle swelling for about a week.",
+          "The user's ankle swelling is bilateral.",
+          "The user has experienced ankle swelling for about a week.",
+          "The user has taken HCTZ for months without issues.",
+          "Michael's ankle swelling improved after starting HCTZ."
+        ],
+        "precision": 0.023809523809523808,
+        "recall": 0.2,
+        "llm_score": 1
+      },
+      "vector": {
+        "retrieved": [
+          "Michael is allergic to penicillin.",
+          "Michael is allergic to penicillin.",
+          "Michael is allergic to Penicillin.",
+          "Michael is allergic to Penicillin.",
+          "Michael is allergic to Penicillin."
+        ],
+        "precision": 0.0,
+        "recall": 0.0,
+        "llm_score": 6
+      },
+      "sam_wins": false,
+      "explanation": "Method B retrieved both key allergy facts directly relevant to the query (penicillin and sulfa allergies). Method A included these but mixed them with a large amount of irrelevant medical history (medications, symptoms, labs), creating noise. Method B stayed focused on the relevant allergy information, making it more helpful for answering which antibiotics should be avoided."
+    },
+    {
+      "test_id": "health_eval_007",
+      "category": "multi_hop_side_effect",
+      "query": "What could be causing Michael's muscle cramps?",
+      "ground_truth": [
+        "HCTZ can cause potassium loss",
+        "Low potassium causes muscle cramps",
+        "Potassium supplement recommended",
+        "Eating bananas helps with potassium"
+      ],
+      "sam": {
+        "retrieved": [
+          "The user has taken HCTZ for months without issues.",
+          "Michael's ankle swelling improved after starting HCTZ.",
+          "HCTZ improved Michael's ankle swelling.",
+          "HCTZ lowers potassium.",
+          "HCTZ is a sulfa-based diuretic."
+        ],
+        "precision": 0.0,
+        "recall": 0.0,
+        "llm_score": 2
+      },
+      "vector": {
+        "retrieved": [
+          "Michael experiences leg cramps.",
+          "Michael experienced leg cramps.",
+          "Eating bananas and taking a potassium supplement helped Michael's leg cramps.",
+          "Eating bananas and taking a potassium supplement reduced Michael's leg cramps.",
+          "Michael experienced leg cramps after starting HCTZ."
+        ],
+        "precision": 0.4,
+        "recall": 1.0,
+        "llm_score": 9
+      },
+      "sam_wins": false,
+      "explanation": "Method B retrieved multiple ground\u2011truth facts directly related to the cause of muscle cramps, including low potassium, HCTZ causing cramps, and the benefit of potassium supplements and bananas. Method A contained mostly irrelevant medication history and no key facts about potassium or cramps. Therefore, Method B is more relevant, has less noise for this query, and would be more helpful for answering the question."
+    },
+    {
+      "test_id": "health_eval_008",
+      "category": "multi_hop_drug_interaction",
+      "query": "Why should Michael avoid ibuprofen?",
+      "ground_truth": [
+        "NSAIDs like ibuprofen can raise blood pressure",
+        "Ibuprofen reduces effectiveness of Lisinopril/Losartan",
+        "Ibuprofen can affect kidneys",
+        "Tylenol is recommended as alternative"
+      ],
+      "sam": {
+        "retrieved": [
+          "The user has been experiencing ankle swelling for about a week.",
+          "The user's ankle swelling is bilateral.",
+          "The user has experienced ankle swelling for about a week.",
+          "The user has taken HCTZ for months without issues.",
+          "Michael's ankle swelling improved after starting HCTZ."
+        ],
+        "precision": 0.0,
+        "recall": 0.0,
+        "llm_score": 1
+      },
+      "vector": {
+        "retrieved": [
+          "Michael occasionally takes ibuprofen.",
+          "Michael occasionally takes ibuprofen.",
+          "Michael occasionally takes ibuprofen for headaches.",
+          "Dr. Wilson advised the user to limit ibuprofen use.",
+          "Michael takes Baby aspirin."
+        ],
+        "precision": 0.0,
+        "recall": 0.0,
+        "llm_score": 2
+      },
+      "sam_wins": false,
+      "explanation": "Method B directly retrieves information about ibuprofen use and a doctor's advice to limit it, which is directly relevant to the query. Method A retrieves many unrelated facts and none of the ground\u2011truth ibuprofen risks. Despite not capturing all ideal facts, Method B is far more on\u2011topic and useful for answering the question."
+    },
+    {
+      "test_id": "health_eval_009",
+      "category": "multi_hop_provider_condition",
+      "query": "Which doctor should Michael see about his ankle swelling?",
+      "ground_truth": [
+        "Ankle swelling could indicate heart or BP issues",
+        "Dr. Wilson is the cardiologist",
+        "The swelling was related to Lisinopril and sodium",
+        "HCTZ was added to treat the swelling"
+      ],
+      "sam": {
+        "retrieved": [
+          "The user has been experiencing ankle swelling for about a week.",
+          "The user's ankle swelling is bilateral.",
+          "The user has experienced ankle swelling for about a week.",
+          "The user has taken HCTZ for months without issues.",
+          "Michael's ankle swelling improved after starting HCTZ."
+        ],
+        "precision": 0.045454545454545456,
+        "recall": 0.5,
+        "llm_score": 3
+      },
+      "vector": {
+        "retrieved": [
+          "HCTZ improved Michael's ankle swelling.",
+          "Michael experienced ankle swelling before improvement on HCTZ.",
+          "Michael's ankle swelling improved after starting HCTZ.",
+          "The user has been experiencing ankle swelling for about a week.",
+          "The user has experienced ankle swelling for about a week."
+        ],
+        "precision": 0.2,
+        "recall": 0.5,
+        "llm_score": 9
+      },
+      "sam_wins": false,
+      "explanation": "Method B retrieved the key ground truth fact that Dr. Wilson is the cardiologist, which is essential for answering which doctor Michael should see. It also stayed highly focused on ankle swelling with minimal irrelevant noise. Method A retrieved many unrelated facts (A1C, potassium, allergies) and missed the key doctor information, making B more helpful for the assistant."
+    },
+    {
+      "test_id": "health_eval_010",
+      "category": "multi_hop_treatment_chain",
+      "query": "What medication was added to treat the fluid retention from blood pressure issues?",
+      "ground_truth": [
+        "Hydrochlorothiazide 12.5mg was added",
+        "HCTZ is a diuretic",
+        "It helps excrete excess fluid",
+        "The ankle swelling improved after starting HCTZ"
+      ],
+      "sam": {
+        "retrieved": [
+          "Michael\u2019s blood pressure is approximately 130/84.",
+          "Michael\u2019s blood pressure is about 130/84.",
+          "Michael's blood pressure is approximately 130/84.",
+          "The user's blood pressure at an office visit was 145/92.",
+          "Michael's blood pressure has been averaging 128/82."
+        ],
+        "precision": 0.075,
+        "recall": 0.75,
+        "llm_score": 4
+      },
+      "vector": {
+        "retrieved": [
+          "blood pressure medications",
+          "Hydrochlorothiazide helps the user reduce fluid retention.",
+          "Lisinopril",
+          "Hydrochlorothiazide",
+          "Hydrochlorothiazide 12.5mg helps reduce excess fluid."
+        ],
+        "precision": 0.1,
+        "recall": 0.25,
+        "llm_score": 9
+      },
+      "sam_wins": false,
+      "explanation": "Method B retrieved the key ground truth facts directly: Hydrochlorothiazide, the 12.5 mg dose, and its role in reducing excess fluid. It contained less irrelevant noise than Method A, which did not mention the dose or explicitly connect HCTZ to fluid retention treatment. Method B would therefore be more helpful for answering the query."
+    },
+    {
+      "test_id": "health_eval_011",
+      "category": "multi_hop_measurement_condition",
+      "query": "What do Michael's A1C results indicate about his diabetes control?",
+      "ground_truth": [
+        "A1C improved from 7.8% to 6.8%",
+        "6.8% indicates good diabetes control",
+        "Target A1C is under 7%",
+        "Walking and diet changes helped improvement"
+      ],
+      "sam": {
+        "retrieved": [
+          "Michael\u2019s A1C was 6.8% in December 2025.",
+          "Michael's A1C was 6.8% in December 2025.",
+          "Michael\u2019s A1C is 6.8%.",
+          "Michael's A1C was previously 7.8% three months ago.",
+          "The user has taken HCTZ for months without issues."
+        ],
+        "precision": 0.023809523809523808,
+        "recall": 0.25,
+        "llm_score": 3
+      },
+      "vector": {
+        "retrieved": [
+          "Michael's A1C is 6.8%.",
+          "Michael's A1C is 7.2%.",
+          "Michael\u2019s A1C decreased from 7.8% to 7.2%.",
+          "Michael's A1C was previously 7.2% in June.",
+          "Michael's A1C was previously 7.8% three months ago."
+        ],
+        "precision": 0.2,
+        "recall": 0.5,
+        "llm_score": 7
+      },
+      "sam_wins": true,
+      "explanation": "Method A captured the key ground\u2011truth facts about the A1C being 6.8% and its improvement, and included context about related symptoms (fatigue improvement) without introducing incorrect A1C values. Method B introduced conflicting and incorrect A1C numbers (7.2%) and missed important ground\u2011truth points, adding more noise. Therefore, Method A is more accurate and useful for answering the query."
+    },
+    {
+      "test_id": "health_eval_012",
+      "category": "multi_hop_lifestyle_condition",
+      "query": "How has exercise affected Michael's diabetes?",
+      "ground_truth": [
+        "Walking 30-40 minutes daily",
+        "A1C improved with exercise",
+        "Exercise improves insulin sensitivity",
+        "May be able to reduce Metformin if maintained"
+      ],
+      "sam": {
+        "retrieved": [
+          "Michael\u2019s A1C was 6.8% in December 2025.",
+          "Michael's A1C was 6.8% in December 2025.",
+          "Michael\u2019s A1C is 6.8%.",
+          "Michael's A1C was previously 7.8% three months ago.",
+          "The user has taken HCTZ for months without issues."
+        ],
+        "precision": 0.023809523809523808,
+        "recall": 0.25,
+        "llm_score": 1
+      },
+      "vector": {
+        "retrieved": [
+          "Walking and dietary changes improved Michael's diabetes control.",
+          "Michael has diabetes.",
+          "Michael has diabetes.",
+          "Walking and dietary changes are improving Michael\u2019s diabetes.",
+          "Michael has Type 2 diabetes."
+        ],
+        "precision": 0.0,
+        "recall": 0.0,
+        "llm_score": 6
+      },
+      "sam_wins": false,
+      "explanation": "Method B retrieved information directly addressing exercise and its effect on Michael's diabetes, including that walking improved his diabetes control. Method A did not retrieve any facts about exercise, insulin sensitivity, A1C changes related to exercise, or medication adjustments, and contained significant irrelevant noise. Therefore, Method B captured more ground\u2011truth\u2011relevant content and is more helpful for answering the query."
+    },
+    {
+      "test_id": "health_eval_013",
+      "category": "multi_hop_allergy_med_class",
+      "query": "Can Michael take the sulfa-based diuretic given his sulfa allergy?",
+      "ground_truth": [
+        "HCTZ is technically sulfa-based",
+        "Cross-reactivity with sulfa antibiotics is low",
+        "Michael has been on HCTZ for months without problems",
+        "He can continue taking it safely"
+      ],
+      "sam": {
+        "retrieved": [
+          "The user has been experiencing ankle swelling for about a week.",
+          "The user's ankle swelling is bilateral.",
+          "The user has experienced ankle swelling for about a week.",
+          "The user has taken HCTZ for months without issues.",
+          "Michael's ankle swelling improved after starting HCTZ."
+        ],
+        "precision": 0.045454545454545456,
+        "recall": 0.5,
+        "llm_score": 4
+      },
+      "vector": {
+        "retrieved": [
+          "Michael is allergic to sulfa drugs.",
+          "Michael is allergic to sulfa drugs.",
+          "Michael is allergic to Sulfa drugs.",
+          "Michael is allergic to Sulfa drugs.",
+          "Michael is allergic to Sulfa drugs."
+        ],
+        "precision": 0.0,
+        "recall": 0.0,
+        "llm_score": 5
+      },
+      "sam_wins": true,
+      "explanation": "Method A retrieved key ground truth facts, including that Michael has taken HCTZ for months without issues and that HCTZ is relevant to his current condition. Method B retrieved only the sulfa allergy repeatedly without providing the necessary context about HCTZ tolerance or cross\u2011reactivity. Method A therefore captured more relevant facts with less redundancy and would be more helpful for answering the query."
+    },
+    {
+      "test_id": "health_eval_014",
+      "category": "multi_hop_symptom_investigation",
+      "query": "Was the ankle swelling from the medication or a heart problem?",
+      "ground_truth": [
+        "EKG was normal",
+        "Echocardiogram was normal",
+        "Swelling was from Lisinopril increase and sodium",
+        "Not a heart problem"
+      ],
+      "sam": {
+        "retrieved": [
+          "The user has been experiencing ankle swelling for about a week.",
+          "The user's ankle swelling is bilateral.",
+          "The user has experienced ankle swelling for about a week.",
+          "Dr. Wilson believes the user's swelling is caused by increased Lisinopril and excessive salt intake.",
+          "Hydrochlorothiazide helps the user reduce fluid retention."
+        ],
+        "precision": 0.0,
+        "recall": 0.0,
+        "llm_score": 5
+      },
+      "vector": {
+        "retrieved": [
+          "ankle swelling",
+          "The user has been experiencing ankle swelling for about a week.",
+          "The user has experienced ankle swelling for about a week.",
+          "The user has experienced ankle swelling for about a week.",
+          "Michael experienced ankle swelling before improvement on HCTZ."
+        ],
+        "precision": 0.1,
+        "recall": 0.25,
+        "llm_score": 2
+      },
+      "sam_wins": true,
+      "explanation": "Method A retrieved the key causal facts about the swelling being due to increased Lisinopril and sodium and not a heart problem, which directly match the ground truth. Method B only retrieved generic ankle swelling facts without identifying the medication cause or ruling out heart issues. Therefore, Method A captured more ground truth facts and was more helpful despite some repetition."
+    },
+    {
+      "test_id": "health_eval_015",
+      "category": "multi_hop_potassium_balance",
+      "query": "Why is Michael's potassium being monitored closely?",
+      "ground_truth": [
+        "Losartan can raise potassium",
+        "HCTZ can lower potassium",
+        "They may balance each other",
+        "Potassium was 5.2 - upper normal",
+        "Avoid potassium supplements"
+      ],
+      "sam": {
+        "retrieved": [
+          "Michael\u2019s A1C was 6.8% in December 2025.",
+          "Michael's A1C was 6.8% in December 2025.",
+          "Michael\u2019s A1C is 6.8%.",
+          "Michael's A1C was previously 7.8% three months ago.",
+          "The user has taken HCTZ for months without issues."
+        ],
+        "precision": 0.023809523809523808,
+        "recall": 0.2,
+        "llm_score": 3
+      },
+      "vector": {
+        "retrieved": [
+          "Michael takes a potassium supplement.",
+          "Michael's potassium level is 5.2.",
+          "Michael's potassium level is 5.2, slightly high.",
+          "Michael\u2019s potassium level is 5.2.",
+          "Michael\u2019s potassium level is 5.2."
+        ],
+        "precision": 0.0,
+        "recall": 0.0,
+        "llm_score": 4
+      },
+      "sam_wins": false,
+      "explanation": "Method B retrieved Michael\u2019s potassium level (5.2, slightly high) and mentioned potassium supplements, which is directly relevant to why potassium is being monitored. Method A retrieved no information about potassium at all, only medications without their potassium effects. Although B includes a small irrelevant item, it still captures more ground\u2011truth\u2011aligned facts and is far more useful for answering the query."
+    },
+    {
+      "test_id": "health_eval_016",
+      "category": "temporal_progression",
+      "query": "How has Michael's blood pressure control changed over time?",
+      "ground_truth": [
+        "Started at 145/92",
+        "Lisinopril increased from 10mg to 20mg",
+        "HCTZ added for fluid retention",
+        "Now averaging around 130/84",
+        "Goal is under 130/80"
+      ],
+      "sam": {
+        "retrieved": [
+          "Michael\u2019s A1C was 6.8% in December 2025.",
+          "Michael's A1C was 6.8% in December 2025.",
+          "Michael\u2019s A1C is 6.8%.",
+          "Michael's A1C was previously 7.8% three months ago.",
+          "The user is allergic to penicillin."
+        ],
+        "precision": 0.025,
+        "recall": 0.2,
+        "llm_score": 2
+      },
+      "vector": {
+        "retrieved": [
+          "Michael's blood pressure has been averaging 128/82.",
+          "Michael previously had blood pressure of 145/92.",
+          "Michael previously had blood pressure of 145/92.",
+          "Michael has high blood pressure.",
+          "Michael has high blood pressure."
+        ],
+        "precision": 0.0,
+        "recall": 0.0,
+        "llm_score": 6
+      },
+      "sam_wins": false,
+      "explanation": "Method B directly retrieved the key blood pressure facts from the ground truth, including starting at 145/92 and current average around 128/82, with minimal unrelated information. Method A contained almost no blood-pressure\u2011related facts and was dominated by irrelevant medication and symptom details, making it much less useful for answering the query."
+    },
+    {
+      "test_id": "health_eval_017",
+      "category": "multi_hop_safe_alternatives",
+      "query": "What allergy medication is safe for Michael to take?",
+      "ground_truth": [
+        "Claritin (loratadine) is safe",
+        "Avoid Claritin-D due to pseudoephedrine raising BP",
+        "Flonase nasal spray is safe",
+        "Benadryl not ideal for BP patients"
+      ],
+      "sam": {
+        "retrieved": [
+          "The user has been experiencing ankle swelling for about a week.",
+          "The user's ankle swelling is bilateral.",
+          "The user has experienced ankle swelling for about a week.",
+          "The user has taken HCTZ for months without issues.",
+          "Michael's ankle swelling improved after starting HCTZ."
+        ],
+        "precision": 0.0,
+        "recall": 0.0,
+        "llm_score": 0
+      },
+      "vector": {
+        "retrieved": [
+          "Michael is allergic to sulfa drugs.",
+          "Michael is allergic to sulfa drugs.",
+          "Michael is allergic to Sulfa drugs.",
+          "Michael is allergic to Sulfa drugs.",
+          "Michael is allergic to Sulfa drugs."
+        ],
+        "precision": 0.0,
+        "recall": 0.0,
+        "llm_score": 1
+      },
+      "sam_wins": false,
+      "explanation": "Neither method retrieved any of the ground\u2011truth allergy medication facts. Method A retrieved many irrelevant chronic\u2011condition details, while Method B retrieved only allergy history, which is also not directly relevant to safe allergy medications for blood pressure. Both failed to capture any ground\u2011truth items, so neither is more helpful for answering the query."
+    },
+    {
+      "test_id": "health_eval_018",
+      "category": "multi_hop_provider_chain",
+      "query": "Who prescribed the medication that was causing the dry cough?",
+      "ground_truth": [
+        "Dr. Wilson prescribed Lisinopril",
+        "Lisinopril caused the dry cough",
+        "Dr. Wilson is the cardiologist",
+        "Dr. Wilson later switched to Losartan"
+      ],
+      "sam": {
+        "retrieved": [
+          "Michael switched from Lisinopril to Losartan in October 2025.",
+          "Michael switched from Lisinopril to Losartan in October 2025 due to a persistent dry cough.",
+          "Michael takes Lisinopril 10 mg daily.",
+          "Dry cough is a known side effect of ACE inhibitors including Lisinopril.",
+          "Dr. Wilson increased the user's Lisinopril dose from 10mg to 20mg daily."
+        ],
+        "precision": 0.07142857142857142,
+        "recall": 0.75,
+        "llm_score": 5
+      },
+      "vector": {
+        "retrieved": [
+          "Michael experiences a dry cough from Lisinopril.",
+          "Michael switched from Lisinopril to Losartan in October 2025 due to a persistent dry cough.",
+          "Michael switched from Lisinopril to Losartan in October 2025 due to a persistent dry cough.",
+          "Lisinopril causes a dry cough for Michael.",
+          "ARB medications rarely cause dry cough."
+        ],
+        "precision": 0.2,
+        "recall": 0.5,
+        "llm_score": 5
+      },
+      "sam_wins": true,
+      "explanation": "Method A retrieved the key ground truth fact that Dr. Wilson prescribed Lisinopril (via the information that Dr. Wilson switched the user from Lisinopril to Losartan), which directly answers the query about who prescribed the medication causing the dry cough. It also included less repetitive noise compared to Method B. Method B retrieved many facts about Lisinopril causing the dry cough but none identifying who prescribed it, making it less useful for answering the question."
+    },
+    {
+      "test_id": "health_eval_019",
+      "category": "multi_hop_travel_safety",
+      "query": "What medication information should Michael bring for his Europe trip?",
+      "ground_truth": [
+        "List of generic drug names",
+        "Medical alert bracelet for allergies",
+        "Penicillin allergy in Italian: Allergico alla penicillina",
+        "Keep medications in carry-on",
+        "Bring extra week supply"
+      ],
+      "sam": {
+        "retrieved": [
+          "The user has been experiencing ankle swelling for about a week.",
+          "The user's ankle swelling is bilateral.",
+          "The user has experienced ankle swelling for about a week.",
+          "The user has taken HCTZ for months without issues.",
+          "Michael's ankle swelling improved after starting HCTZ."
+        ],
+        "precision": 0.0,
+        "recall": 0.0,
+        "llm_score": 1
+      },
+      "vector": {
+        "retrieved": [
+          "Michael occasionally takes ibuprofen.",
+          "Michael occasionally takes ibuprofen.",
+          "Michael takes baby aspirin daily.",
+          "Michael takes baby aspirin daily.",
+          "Michael takes baby aspirin daily."
+        ],
+        "precision": 0.0,
+        "recall": 0.0,
+        "llm_score": 2
+      },
+      "sam_wins": true,
+      "explanation": "Method A retrieved Michael\u2019s penicillin allergy, which directly matches the ground\u2011truth requirement for medication information needed for travel. It also included multiple relevant medications he takes. Method B retrieved no ground\u2011truth facts and mostly repeated irrelevant items like aspirin and ibuprofen. Method A therefore captured more useful information with less noise for answering the query."
+    },
+    {
+      "test_id": "health_eval_020",
+      "category": "multi_hop_complex_chain",
+      "query": "What test showed that the medication causing ankle swelling hadn't damaged Michael's heart?",
+      "ground_truth": [
+        "Echocardiogram was ordered",
+        "Echo came back normal",
+        "This ruled out heart damage",
+        "The swelling was from Lisinopril and sodium, not heart failure"
+      ],
+      "sam": {
+        "retrieved": [
+          "Michael\u2019s A1C was 6.8% in December 2025.",
+          "Michael's A1C was 6.8% in December 2025.",
+          "Michael\u2019s A1C is 6.8%.",
+          "Michael's A1C was previously 7.8% three months ago.",
+          "The user has taken HCTZ for months without issues."
+        ],
+        "precision": 0.0,
+        "recall": 0.0,
+        "llm_score": 0
+      },
+      "vector": {
+        "retrieved": [
+          "Michael experienced ankle swelling before improvement on HCTZ.",
+          "HCTZ improved Michael's ankle swelling.",
+          "Michael's ankle swelling improved after starting HCTZ.",
+          "Michael's echocardiogram came back normal.",
+          "Michael's echocardiogram was normal."
+        ],
+        "precision": 0.2,
+        "recall": 0.5,
+        "llm_score": 8
+      },
+      "sam_wins": false,
+      "explanation": "Method B retrieved the key ground truth facts about the echocardiogram being normal and ruling out heart damage, with minimal irrelevant noise. Method A contained no information about the echocardiogram or heart evaluation and consisted mostly of unrelated medication details, making it less useful for answering the query."
+    }
+  ]
+}
