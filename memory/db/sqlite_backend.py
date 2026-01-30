@@ -133,9 +133,13 @@ class SQLiteDatabase(MemoryDatabase):
         self.vector_dimensions = vector_dimensions
         self._conn: Optional[sqlite3.Connection] = None
         self._vec_available = False
+        self._initialized = False
     
     async def initialize(self) -> None:
         """Initialize database and create tables."""
+        if self._initialized:
+            return
+        
         # Ensure parent directory exists
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         
@@ -155,6 +159,7 @@ class SQLiteDatabase(MemoryDatabase):
             self._create_vector_indexes()
         
         self._conn.commit()
+        self._initialized = True
     
     def _try_load_vec_extension(self) -> bool:
         """Try to load sqlite-vec extension."""

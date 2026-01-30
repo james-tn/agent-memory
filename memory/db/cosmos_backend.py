@@ -284,9 +284,9 @@ class CosmosDBDatabase(MemoryDatabase):
         
         # Build WHERE clause for filters
         where_clause = ""
+        # Note: TOP clause does not support parameterized values in CosmosDB
         params = [
-            {"name": "@embedding", "value": query_embedding},
-            {"name": "@top_k", "value": top_k}
+            {"name": "@embedding", "value": query_embedding}
         ]
         
         if filters:
@@ -297,19 +297,28 @@ class CosmosDBDatabase(MemoryDatabase):
                 params.append({"name": param_name, "value": value})
             where_clause = "WHERE " + " AND ".join(conditions)
         
-        query = f"""
-            SELECT TOP @top_k c.*,
-                   VectorDistance(c.{vector_field}, @embedding) AS similarity_score
-            FROM c
-            {where_clause}
-            ORDER BY VectorDistance(c.{vector_field}, @embedding)
-        """
+        # NOTE: CosmosDB vector search does NOT support SELECT c.* with VectorDistance.
+        # We must explicitly select the fields we want, excluding the vector fields.
+        # The query returns non-vector fields only to avoid the "One of the input values is invalid" error.
+        query = (
+            f"SELECT TOP {top_k} c.id, c.user_id, c.session_id, c.timestamp, "
+            f"c.content, c.summary, c.metadata, c.insight_text, c.category, c.topics, "
+            f"VectorDistance(c.{vector_field}, @embedding) AS similarity_score "
+            f"FROM c {where_clause} "
+            f"ORDER BY VectorDistance(c.{vector_field}, @embedding)"
+        )
         
-        results = list(container_client.query_items(
-            query=query,
-            parameters=params,
-            enable_cross_partition_query=True
-        ))
+        try:
+            results = list(container_client.query_items(
+                query=query,
+                parameters=params,
+                enable_cross_partition_query=True
+            ))
+        except Exception as e:
+            print(f"[CosmosDB] Vector search error: {e}")
+            print(f"[CosmosDB] Container: {container}, Vector field: {vector_field}")
+            # Return empty results instead of crashing
+            return []
         
         # Convert to SearchResult
         search_results = []

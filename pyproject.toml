@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "CosmosDB-backed agent memory with multi-tier storage"
 requires-python = ">=3.12"
 dependencies = [
-    "agent-framework>=1.0.0b251120",
+    "agent-framework==1.0.0b260128",
     "openai>=2.5.0",
     "python-dotenv>=1.1.1",
     "azure-cosmos==4.14.0",

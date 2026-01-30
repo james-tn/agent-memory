@@ -221,7 +221,6 @@ class MemoryOrchestrator:
         )
         
         self._initialized = True
-        print(f"[Orchestrator] Initialized for user {self.user_id}, session {self.session_id}")
     
     async def start_session(self) -> Dict[str, Any]:
         """

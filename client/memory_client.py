@@ -1,51 +1,78 @@
 """
-Generic Memory Service Client.
+Memory Service Client.
 
-This is a simple HTTP client for the memory service that can be used
-without Agent Framework. Useful for:
-- Non-Python clients (any language that can make HTTP requests)
-- Python applications not using Agent Framework
-- Testing and debugging
+HTTP client for the Agent Memory Service API. Works with any language
+that can make HTTP requests. For Python apps, provides async interface.
 
-Unlike RemoteMemoryProvider, this does NOT integrate with agent lifecycle.
-You must explicitly call methods to manage sessions and memory.
+The client manages sessions and memory operations via REST API:
+- Session lifecycle (start, end)
+- Turn storage (user + assistant messages)
+- Context retrieval
+- Memory search
+- Insights and session history
 """
 
 import httpx
 from typing import Optional, Dict, Any, List
+from dataclasses import dataclass
 import uuid
 import logging
 
 logger = logging.getLogger(__name__)
 
 
+@dataclass
+class SessionContext:
+    """Context returned when starting or getting session state."""
+    session_id: str
+    user_id: str
+    context: str
+    turn_count: int = 0
+    insights_loaded: bool = False
+    recent_sessions_count: int = 0
+
+
+@dataclass 
+class TurnResult:
+    """Result from storing a conversation turn."""
+    success: bool
+    turn_count: int
+    pruning_triggered: bool = False
+
+
+@dataclass
+class EndSessionResult:
+    """Result from ending a session."""
+    success: bool
+    summary: str
+    insights_count: int
+    synthesis_triggered: bool = False
+
+
 class MemoryServiceClient:
     """
-    Simple HTTP client for Agent Memory Service.
+    HTTP client for Agent Memory Service.
     
     Usage:
-        # Create client
-        client = MemoryServiceClient(
-            service_url="http://localhost:8000",
-            user_id="user123"
-        )
-        
-        # Start session
-        context = await client.start_session()
-        print(f"Session ID: {client.session_id}")
-        
-        # Store turns manually
-        await client.store_turn(
-            user_message="What is a 401k?",
-            agent_message="A 401k is a retirement savings plan..."
-        )
-        
-        # Get context for next turn
-        context = await client.get_context()
-        # Inject context['formatted_context'] into your agent's prompt
-        
-        # End session
-        await client.end_session()
+        async with MemoryServiceClient("http://localhost:8000", "user123") as client:
+            # Start session - get initial context
+            ctx = await client.start_session()
+            print(f"Session: {ctx.session_id}")
+            print(f"Context: {ctx.context}")
+            
+            # Your agent handles the conversation...
+            user_msg = "What is a 401k?"
+            assistant_msg = your_agent.respond(user_msg, context=ctx.context)
+            
+            # Store the turn
+            result = await client.store_turn(user_msg, assistant_msg)
+            
+            # Get updated context for next turn
+            ctx = await client.get_context()
+            
+            # End session (triggers reflection/synthesis)
+            end = await client.end_session()
+            print(f"Insights extracted: {end.insights_count}")
     """
     
     def __init__(
@@ -53,7 +80,7 @@ class MemoryServiceClient:
         service_url: str,
         user_id: str,
         session_id: Optional[str] = None,
-        timeout: float = 30.0
+        timeout: float = 60.0
     ):
         """
         Initialize memory service client.
@@ -61,20 +88,23 @@ class MemoryServiceClient:
         Args:
             service_url: Base URL of memory service (e.g., "http://localhost:8000")
             user_id: User identifier
-            session_id: Session identifier (auto-generated if not provided)
+            session_id: Optional session ID (auto-generated if not provided)
             timeout: HTTP request timeout in seconds
         """
         self.service_url = service_url.rstrip("/")
         self.user_id = user_id
-        self.session_id = session_id or str(uuid.uuid4())
+        self.session_id = session_id
         self.timeout = timeout
+        self._client: Optional[httpx.AsyncClient] = None
         
-        # HTTP client
-        self.client = httpx.AsyncClient(timeout=self.timeout)
-        
-        logger.info(
-            f"MemoryServiceClient initialized: user={user_id}, session={self.session_id}"
-        )
+        logger.info(f"MemoryServiceClient initialized: user={user_id}")
+    
+    @property
+    def client(self) -> httpx.AsyncClient:
+        """Get or create HTTP client."""
+        if self._client is None:
+            self._client = httpx.AsyncClient(timeout=self.timeout)
+        return self._client
     
     async def __aenter__(self):
         """Context manager entry."""
@@ -82,254 +112,16 @@ class MemoryServiceClient:
     
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Context manager exit - close HTTP client."""
-        await self.client.aclose()
+        await self.close()
     
     async def close(self):
         """Close HTTP client."""
-        await self.client.aclose()
+        if self._client is not None:
+            await self._client.aclose()
+            self._client = None
     
     # ========================================================================
-    # Session Management
-    # ========================================================================
-    
-    async def start_session(self, restore: bool = True) -> Dict[str, Any]:
-        """
-        Start a new session or restore existing one.
-        
-        Args:
-            restore: If True, attempt to restore session from CosmosDB
-        
-        Returns:
-            Dictionary with initial session context:
-            - session_id: Session identifier
-            - active_context: Recent turns
-            - cumulative_summary: Summary of earlier conversation
-            - insights: Relevant user insights
-            - session_summaries: Recent session summaries
-            - formatted_context: Ready-to-inject context string
-            - restored: Whether session was restored from CosmosDB
-        """
-        url = f"{self.service_url}/sessions/start"
-        payload = {
-            "user_id": self.user_id,
-            "session_id": self.session_id,
-            "restore": restore
-        }
-        
-        try:
-            response = await self.client.post(url, json=payload)
-            response.raise_for_status()
-            
-            result = response.json()
-            self.session_id = result["session_id"]  # Update in case it was auto-generated
-            
-            logger.info(
-                f"Session started: {self.session_id} "
-                f"(restored: {result.get('restored', False)})"
-            )
-            
-            return result
-        
-        except httpx.HTTPError as e:
-            logger.error(f"Failed to start session: {e}")
-            raise RuntimeError(f"Failed to start memory session: {e}")
-    
-    async def end_session(self) -> Dict[str, str]:
-        """
-        End the current session and trigger reflection.
-        
-        This persists the session state and extracts insights.
-        
-        Returns:
-            Dictionary with status message
-        """
-        url = f"{self.service_url}/sessions/end"
-        payload = {
-            "user_id": self.user_id,
-            "session_id": self.session_id
-        }
-        
-        try:
-            response = await self.client.post(url, json=payload)
-            response.raise_for_status()
-            
-            result = response.json()
-            logger.info(f"Session ended: {self.session_id}")
-            
-            return result
-        
-        except httpx.HTTPError as e:
-            logger.error(f"Failed to end session: {e}")
-            raise RuntimeError(f"Failed to end memory session: {e}")
-    
-    # ========================================================================
-    # Memory Operations
-    # ========================================================================
-    
-    async def get_context(self) -> Dict[str, Any]:
-        """
-        Get current memory context for this session.
-        
-        Returns:
-            Dictionary with context information:
-            - active_context: List of recent turns
-            - cumulative_summary: Summary of earlier conversation
-            - insights: Relevant user insights
-            - session_summaries: Recent session summaries
-            - formatted_context: Ready-to-inject context string
-        """
-        url = f"{self.service_url}/memory/context"
-        payload = {
-            "user_id": self.user_id,
-            "session_id": self.session_id
-        }
-        
-        try:
-            response = await self.client.post(url, json=payload)
-            response.raise_for_status()
-            return response.json()
-        
-        except httpx.HTTPError as e:
-            logger.error(f"Failed to get context: {e}")
-            raise RuntimeError(f"Failed to get memory context: {e}")
-    
-    async def store_turn(self, user_message: str, agent_message: str) -> Dict[str, str]:
-        """
-        Store a conversation turn in memory.
-        
-        Args:
-            user_message: User's message
-            agent_message: Agent's response
-        
-        Returns:
-            Dictionary with status message
-        """
-        url = f"{self.service_url}/memory/store"
-        payload = {
-            "user_id": self.user_id,
-            "session_id": self.session_id,
-            "user_message": user_message,
-            "agent_message": agent_message
-        }
-        
-        try:
-            response = await self.client.post(url, json=payload)
-            response.raise_for_status()
-            
-            result = response.json()
-            logger.debug(f"Turn stored: session={self.session_id}")
-            
-            return result
-        
-        except httpx.HTTPError as e:
-            logger.error(f"Failed to store turn: {e}")
-            raise RuntimeError(f"Failed to store memory turn: {e}")
-    
-    async def retrieve_facts(
-        self, 
-        query: str, 
-        top_k: int = 5,
-        include_summaries: bool = False,
-        include_insights: bool = False
-    ) -> List[str]:
-        """
-        Retrieve contextual facts using semantic search.
-        
-        Args:
-            query: Search query
-            top_k: Number of facts to retrieve
-            include_summaries: Whether to search session summaries (default: False)
-            include_insights: Whether to search long-term insights (default: False)
-        
-        Returns:
-            List of relevant facts
-        """
-        url = f"{self.service_url}/memory/retrieve"
-        payload = {
-            "user_id": self.user_id,
-            "session_id": self.session_id,
-            "query": query,
-            "top_k": top_k,
-            "include_summaries": include_summaries,
-            "include_insights": include_insights
-        }
-        
-        try:
-            response = await self.client.post(url, json=payload)
-            response.raise_for_status()
-            
-            result = response.json()
-            return result.get("facts", [])
-        
-        except httpx.HTTPError as e:
-            logger.error(f"Failed to retrieve facts: {e}")
-            raise RuntimeError(f"Failed to retrieve facts: {e}")
-    
-    # ========================================================================
-    # Insights & Summaries
-    # ========================================================================
-    
-    async def get_insights(self, recent_only: bool = False) -> List[Dict[str, Any]]:
-        """
-        Get user insights (long-term learnings).
-        
-        Args:
-            recent_only: If True, only return recent insights (last 30 days)
-        
-        Returns:
-            List of insights with content, timestamp, and session_id
-        """
-        url = f"{self.service_url}/insights"
-        payload = {
-            "user_id": self.user_id,
-            "recent_only": recent_only
-        }
-        
-        try:
-            response = await self.client.post(url, json=payload)
-            response.raise_for_status()
-            
-            result = response.json()
-            return result.get("insights", [])
-        
-        except httpx.HTTPError as e:
-            logger.error(f"Failed to get insights: {e}")
-            raise RuntimeError(f"Failed to get insights: {e}")
-    
-    async def get_summaries(self, limit: int = 5) -> List[Dict[str, Any]]:
-        """
-        Get session summaries for this user.
-        
-        Args:
-            limit: Maximum number of summaries to retrieve
-        
-        Returns:
-            List of session summaries with:
-            - session_id
-            - start_time
-            - end_time
-            - cumulative_summary
-            - turn_count
-        """
-        url = f"{self.service_url}/summaries"
-        payload = {
-            "user_id": self.user_id,
-            "limit": limit
-        }
-        
-        try:
-            response = await self.client.post(url, json=payload)
-            response.raise_for_status()
-            
-            result = response.json()
-            return result.get("summaries", [])
-        
-        except httpx.HTTPError as e:
-            logger.error(f"Failed to get summaries: {e}")
-            raise RuntimeError(f"Failed to get summaries: {e}")
-    
-    # ========================================================================
-    # Health & Stats
+    # Health Check
     # ========================================================================
     
     async def health_check(self) -> Dict[str, Any]:
@@ -337,39 +129,241 @@ class MemoryServiceClient:
         Check if memory service is healthy.
         
         Returns:
-            Health status dictionary
+            Health status with active_sessions and uptime_seconds
         """
-        url = f"{self.service_url}/health"
-        
-        try:
-            response = await self.client.get(url)
-            response.raise_for_status()
-            return response.json()
-        
-        except httpx.HTTPError as e:
-            logger.error(f"Health check failed: {e}")
-            raise RuntimeError(f"Memory service health check failed: {e}")
+        response = await self.client.get(f"{self.service_url}/health")
+        response.raise_for_status()
+        return response.json()
     
-    async def get_stats(self) -> Dict[str, Any]:
+    # ========================================================================
+    # Session Management
+    # ========================================================================
+    
+    async def start_session(self, restore: bool = False) -> SessionContext:
         """
-        Get session pool statistics.
+        Start a new session or restore existing one.
+        
+        Args:
+            restore: If True, attempt to restore previous session state
         
         Returns:
-            Pool statistics with:
-            - total_sessions
-            - dirty_sessions
-            - max_capacity
-            - utilization
-            - avg_age_seconds
-            - oldest_age_seconds
+            SessionContext with initial context for prompt injection
         """
-        url = f"{self.service_url}/stats"
+        payload = {
+            "user_id": self.user_id,
+            "session_id": self.session_id,
+            "restore": restore
+        }
         
-        try:
-            response = await self.client.get(url)
-            response.raise_for_status()
-            return response.json()
+        response = await self.client.post(
+            f"{self.service_url}/sessions/start",
+            json=payload
+        )
+        response.raise_for_status()
         
-        except httpx.HTTPError as e:
-            logger.error(f"Failed to get stats: {e}")
-            raise RuntimeError(f"Failed to get service stats: {e}")
+        data = response.json()
+        self.session_id = data["session_id"]
+        
+        logger.info(f"Session started: {self.session_id}")
+        
+        return SessionContext(
+            session_id=data["session_id"],
+            user_id=data["user_id"],
+            context=data["context"],
+            insights_loaded=data.get("insights_loaded", False),
+            recent_sessions_count=data.get("recent_sessions_count", 0)
+        )
+    
+    async def get_context(self) -> SessionContext:
+        """
+        Get current session context for prompt injection.
+        
+        Returns:
+            SessionContext with current context and turn count
+        """
+        if not self.session_id:
+            raise RuntimeError("No active session. Call start_session() first.")
+        
+        payload = {
+            "user_id": self.user_id,
+            "session_id": self.session_id
+        }
+        
+        response = await self.client.post(
+            f"{self.service_url}/sessions/context",
+            json=payload
+        )
+        response.raise_for_status()
+        
+        data = response.json()
+        return SessionContext(
+            session_id=self.session_id,
+            user_id=self.user_id,
+            context=data["context"],
+            turn_count=data.get("turn_count", 0)
+        )
+    
+    async def store_turn(
+        self, 
+        user_message: str, 
+        assistant_message: str
+    ) -> TurnResult:
+        """
+        Store a conversation turn (user message + assistant response).
+        
+        Args:
+            user_message: User's message
+            assistant_message: Assistant's response
+        
+        Returns:
+            TurnResult with turn count and pruning status
+        """
+        if not self.session_id:
+            raise RuntimeError("No active session. Call start_session() first.")
+        
+        payload = {
+            "user_id": self.user_id,
+            "session_id": self.session_id,
+            "user_message": user_message,
+            "assistant_message": assistant_message
+        }
+        
+        response = await self.client.post(
+            f"{self.service_url}/sessions/turn",
+            json=payload
+        )
+        response.raise_for_status()
+        
+        data = response.json()
+        logger.debug(f"Turn stored: session={self.session_id}")
+        
+        return TurnResult(
+            success=data["success"],
+            turn_count=data["turn_count"],
+            pruning_triggered=data.get("pruning_triggered", False)
+        )
+    
+    async def end_session(self, trigger_reflection: bool = True) -> EndSessionResult:
+        """
+        End the current session.
+        
+        This triggers reflection (insight extraction) and long-term synthesis.
+        
+        Args:
+            trigger_reflection: Whether to extract insights (default: True)
+        
+        Returns:
+            EndSessionResult with summary and insights count
+        """
+        if not self.session_id:
+            raise RuntimeError("No active session. Call start_session() first.")
+        
+        payload = {
+            "user_id": self.user_id,
+            "session_id": self.session_id,
+            "trigger_reflection": trigger_reflection
+        }
+        
+        response = await self.client.post(
+            f"{self.service_url}/sessions/end",
+            json=payload
+        )
+        response.raise_for_status()
+        
+        data = response.json()
+        logger.info(f"Session ended: {self.session_id}")
+        
+        # Clear session ID after ending
+        self.session_id = None
+        
+        return EndSessionResult(
+            success=data["success"],
+            summary=data.get("summary", ""),
+            insights_count=data.get("insights_count", 0),
+            synthesis_triggered=data.get("synthesis_triggered", False)
+        )
+    
+    # ========================================================================
+    # Memory Search
+    # ========================================================================
+    
+    async def search(
+        self, 
+        query: str, 
+        top_k: int = 5,
+        search_interactions: bool = True,
+        search_insights: bool = True,
+        search_summaries: bool = False
+    ) -> str:
+        """
+        Search memory for relevant information.
+        
+        Args:
+            query: Search query
+            top_k: Number of results to retrieve
+            search_interactions: Search past conversation chunks
+            search_insights: Search long-term insights
+            search_summaries: Search session summaries
+        
+        Returns:
+            Formatted search results string
+        """
+        payload = {
+            "user_id": self.user_id,
+            "query": query,
+            "top_k": top_k,
+            "search_interactions": search_interactions,
+            "search_insights": search_insights,
+            "search_summaries": search_summaries
+        }
+        
+        response = await self.client.post(
+            f"{self.service_url}/search",
+            json=payload
+        )
+        response.raise_for_status()
+        
+        data = response.json()
+        return data.get("results", "")
+    
+    # ========================================================================
+    # User Data
+    # ========================================================================
+    
+    async def get_insights(self, limit: int = 10) -> List[Dict[str, Any]]:
+        """
+        Get long-term insights for this user.
+        
+        Args:
+            limit: Maximum number of insights to retrieve
+        
+        Returns:
+            List of insight dictionaries
+        """
+        response = await self.client.get(
+            f"{self.service_url}/users/{self.user_id}/insights",
+            params={"limit": limit}
+        )
+        response.raise_for_status()
+        
+        data = response.json()
+        return data.get("insights", [])
+    
+    async def get_sessions(self, limit: int = 10) -> List[Dict[str, Any]]:
+        """
+        Get recent sessions for this user.
+        
+        Args:
+            limit: Maximum number of sessions to retrieve
+        
+        Returns:
+            List of session dictionaries
+        """
+        response = await self.client.get(
+            f"{self.service_url}/users/{self.user_id}/sessions",
+            params={"limit": limit}
+        )
+        response.raise_for_status()
+        
+        data = response.json()
+        return data.get("sessions", [])

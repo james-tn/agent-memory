@@ -16,7 +16,7 @@ The agent has three search tools:
 from typing import List, Dict, Optional, Any, Annotated
 from dataclasses import dataclass
 
-from agent_framework import ChatAgent, ai_function
+from agent_framework import ChatAgent, tool
 from agent_framework.azure import AzureOpenAIChatClient
 from azure.identity import DefaultAzureCredential
 
@@ -68,7 +68,7 @@ class FactRetrieval:
         self.config = config or FactRetrievalConfig()
         
         # Create search tool functions with closure over self
-        @ai_function(
+        @tool(
             name="search_interactions",
             description="Search past conversation interactions for specific topics or details"
         )
@@ -85,7 +85,7 @@ class FactRetrieval:
                 print(f"     Results preview: {formatted[:150]}...")
             return formatted
         
-        @ai_function(
+        @tool(
             name="search_summaries",
             description="Search session summaries to find information from previous sessions"
         )
@@ -102,7 +102,7 @@ class FactRetrieval:
                 print(f"     Results preview: {formatted[:150]}...")
             return formatted
         
-        @ai_function(
+        @tool(
             name="search_insights",
             description="Search long-term insights about user preferences, knowledge level, and patterns"
         )
