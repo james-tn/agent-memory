@@ -46,8 +46,9 @@ class AgentMemoryConfig:
     top_k_results: int = 5
     similarity_threshold: float = 0.75
     
-    # Auto-enrichment (keyword-triggered memory search)
+    # Auto-enrichment (semantic memory search)
     auto_enrich_context: bool = False
+    enrichment_mode: str = "llm"  # "llm" (semantic, human-like) or "keyword" (simple, fast)
     enrichment_trigger_keywords: List[str] = field(default_factory=lambda: [
         "remember", "recall", "previous", "last time", "before",
         "allergy", "allergies", "medication", "prescribe",
@@ -114,6 +115,7 @@ class AgentMemoryConfig:
             EMBEDDING_MODEL=self.embedding_model,
             EMBEDDING_DIMENSIONS=self.embedding_dimensions,
             auto_enrich_context=self.auto_enrich_context,
+            enrichment_mode=self.enrichment_mode,
             enrichment_trigger_keywords=self.enrichment_trigger_keywords,
         )
 
@@ -611,13 +613,27 @@ class AgentMemory(ContextProvider if HAS_AGENT_FRAMEWORK else object):
         # Auto-enrichment: search memory for relevant facts based on user message
         if self.config.auto_enrich_context:
             recent_text = self._last_user_message
-            if recent_text and self._should_enrich(recent_text):
-                try:
-                    facts = await self.search(recent_text, top_k=3)
-                    if facts and facts.strip():
-                        context_parts.append(f"\n### Relevant Memory\n{facts}")
-                except Exception:
-                    pass  # Don't fail agent invocation if enrichment fails
+            if recent_text:
+                should_enrich = False
+                search_query = recent_text
+                
+                if self.config.enrichment_mode == "llm":
+                    # Use LLM for semantic detection (more natural, human-like)
+                    should_enrich, search_query = await self._should_enrich_llm(recent_text)
+                    if not search_query:
+                        search_query = recent_text
+                else:
+                    # Use keyword matching (simple, fast, cheap)
+                    should_enrich = self._should_enrich(recent_text)
+                
+                if should_enrich:
+                    try:
+                        facts = await self.search(search_query, top_k=3)
+                        if facts and facts.strip():
+                            context_parts.append(f"\n### Relevant Memory\n{facts}")
+                            print(f"  [Auto-Enrich] ✓ Added {len(facts)} chars to context")
+                    except Exception as e:
+                        print(f"  [Auto-Enrich] ⚠ Search failed: {e}")
         
         # Build context with memory injection
         context_text = "\n".join(context_parts) if context_parts else None
@@ -829,11 +845,92 @@ class AgentMemory(ContextProvider if HAS_AGENT_FRAMEWORK else object):
         return recall_facts
     
     def _should_enrich(self, text: str) -> bool:
-        """Check if text contains enrichment trigger keywords."""
+        """Check if text contains enrichment trigger keywords (fast mode)."""
         if not text:
             return False
         text_lower = text.lower()
         return any(kw in text_lower for kw in self.config.enrichment_trigger_keywords)
+    
+    async def _should_enrich_llm(self, text: str) -> tuple[bool, Optional[str]]:
+        """
+        Use LLM to semantically detect if text needs memory retrieval.
+        
+        This is more natural than keyword matching - it understands context,
+        implicit references, and nuanced requests for past information.
+        
+        Returns:
+            (should_enrich, suggested_query): Whether to retrieve and what to search for
+        """
+        if not text or len(text.strip()) < 10:
+            return False, None
+        
+        # Check cache
+        cache_key = hash(text[:200])
+        if hasattr(self, '_llm_enrich_cache') and self._llm_enrich_cache.get('key') == cache_key:
+            cached = self._llm_enrich_cache
+            return cached.get('should_enrich', False), cached.get('query')
+        
+        detection_prompt = f"""Analyze this user message and determine if it:
+1. References past conversations ("you told me", "we discussed", "last time")
+2. Asks about historical context (allergies, preferences, past decisions)
+3. Expects the assistant to remember prior interactions
+4. Makes a request where past information is critical (medication, financial advice)
+
+User message: "{text}"
+
+Respond in this exact format:
+NEEDS_MEMORY: yes/no
+QUERY: <search query to find relevant past information, or 'none'>"""
+
+        try:
+            import os
+            from openai import AzureOpenAI
+            
+            client = AzureOpenAI(
+                azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
+                api_version="2024-12-01-preview"
+            )
+            
+            model = self.config.processing_model or os.getenv("AZURE_OPENAI_PROCESSING_MODEL", "gpt-4o-mini")
+            
+            response = client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": detection_prompt}],
+                max_completion_tokens=100,
+            )
+            
+            result_text = response.choices[0].message.content.strip()
+            
+            should_enrich = "needs_memory: yes" in result_text.lower()
+            
+            query = None
+            if should_enrich:
+                for line in result_text.split("\n"):
+                    if line.upper().startswith("QUERY:"):
+                        query = line.split(":", 1)[1].strip()
+                        if query.lower() == "none":
+                            query = text  # Use original text as fallback
+                        break
+                if not query:
+                    query = text
+            
+            # Cache result
+            self._llm_enrich_cache = {
+                'key': cache_key,
+                'should_enrich': should_enrich,
+                'query': query
+            }
+            
+            if should_enrich:
+                print(f"  [Auto-Enrich] 🧠 LLM detected memory need")
+                print(f"  [Auto-Enrich] Query: {query[:50]}...")
+            
+            return should_enrich, query
+            
+        except Exception as e:
+            print(f"  [Auto-Enrich] ⚠ LLM detection failed: {e}")
+            # Fallback to keyword detection
+            return self._should_enrich(text), text if self._should_enrich(text) else None
 
 
 # Backward compatibility aliases

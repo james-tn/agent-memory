@@ -140,8 +140,10 @@ async def main():
     
     # Memory configuration with auto-enrichment and granular control
     config = AgentMemoryConfig(
-        # Auto-enrichment: keyword-triggered fact search
+        # Auto-enrichment: LLM-based semantic detection (more natural than keywords)
         auto_enrich_context=True,
+        enrichment_mode="llm",  # "llm" (semantic, human-like) or "keyword" (simple, fast)
+        # Fallback keywords (used when enrichment_mode="keyword")
         enrichment_trigger_keywords=[
             "remember", "recall", "previous", "last time", "before",
             "discussed", "mentioned", "told you", "my profile",

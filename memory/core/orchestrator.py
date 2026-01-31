@@ -45,8 +45,9 @@ class OrchestratorConfig:
     EMBEDDING_MODEL: str = "text-embedding-3-large"
     EMBEDDING_DIMENSIONS: int = 3072
     
-    # Auto-enrichment
+    # Auto-enrichment (LLM-based semantic detection)
     auto_enrich_context: bool = False
+    enrichment_mode: str = "llm"  # "llm" (semantic) or "keyword" (simple)
     enrichment_trigger_keywords: List[str] = field(default_factory=lambda: [
         "remember", "recall", "previous", "last time", "before",
         "allergy", "allergies", "medication", "prescribe",
@@ -546,7 +547,7 @@ class MemoryOrchestrator:
         return await self._reflection.update_longterm_insight(self.user_id)
     
     def _should_enrich_context(self) -> bool:
-        """Check if recent conversation contains enrichment triggers."""
+        """Check if recent conversation needs memory retrieval (keyword mode)."""
         if not self.config.auto_enrich_context:
             return False
         
@@ -563,12 +564,108 @@ class MemoryOrchestrator:
         
         return False
     
-    async def _enrich_with_recalled_facts(self, force: bool = False) -> Optional[str]:
-        """Automatically enrich context with recalled facts."""
-        if not force and not self._should_enrich_context():
-            return None
+    async def _should_enrich_context_llm(self) -> tuple[bool, Optional[str]]:
+        """
+        Use LLM to semantically detect if conversation needs memory retrieval.
         
-        # Check cache
+        This is more natural than keyword matching - it understands context,
+        implicit references, and nuanced requests for past information.
+        
+        Returns:
+            (should_enrich, suggested_query): Whether to retrieve and what to search for
+        """
+        if not self.config.auto_enrich_context:
+            return False, None
+        
+        if not self._recent_turns or len(self._recent_turns) < 1:
+            return False, None
+        
+        # Check cache to avoid repeated LLM calls for same conversation state
+        current_turn_count = len(self._recent_turns)
+        if (hasattr(self, '_llm_enrich_cache') and 
+            self._llm_enrich_cache.get('turn_count') == current_turn_count):
+            cached = self._llm_enrich_cache
+            return cached.get('should_enrich', False), cached.get('query')
+        
+        # Build conversation context for analysis
+        recent_conversation = "\n".join([
+            f"{role}: {content}" 
+            for role, content in self._recent_turns[-4:]
+        ])
+        
+        # Use fast model for detection
+        detection_prompt = f"""Analyze this conversation and determine if the user is:
+1. Referencing past conversations or information ("you told me", "we discussed", "last time")
+2. Asking about something that requires historical context (allergies, preferences, past decisions)
+3. Expecting the assistant to remember prior interactions
+4. Making a request where past information is critical (e.g., prescribing medication, financial advice)
+
+Conversation:
+{recent_conversation}
+
+Respond in this exact format:
+NEEDS_MEMORY: yes/no
+QUERY: <search query to find relevant past information, or 'none'>
+REASON: <brief explanation>"""
+        
+        try:
+            from openai import AzureOpenAI
+            import os
+            
+            # Use processing model (fast) for detection
+            client = AzureOpenAI(
+                azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
+                api_version="2024-12-01-preview"
+            )
+            
+            response = client.chat.completions.create(
+                model=self.config.PROCESSING_MODEL,
+                messages=[{"role": "user", "content": detection_prompt}],
+                max_completion_tokens=150,
+            )
+            
+            result_text = response.choices[0].message.content.strip()
+            
+            # Parse response
+            should_enrich = "NEEDS_MEMORY: yes" in result_text.lower() or "needs_memory: yes" in result_text
+            
+            # Extract query
+            query = None
+            if should_enrich:
+                for line in result_text.split("\n"):
+                    if line.upper().startswith("QUERY:"):
+                        query = line.split(":", 1)[1].strip()
+                        if query.lower() == "none":
+                            query = None
+                        break
+            
+            # Cache result
+            self._llm_enrich_cache = {
+                'turn_count': current_turn_count,
+                'should_enrich': should_enrich,
+                'query': query
+            }
+            
+            if should_enrich:
+                print(f"  [Auto-Enrich] 🧠 LLM detected memory need")
+                print(f"  [Auto-Enrich] Suggested query: {query}")
+            
+            return should_enrich, query
+            
+        except Exception as e:
+            print(f"  [Auto-Enrich] ⚠ LLM detection failed: {e}")
+            # Fallback to keyword detection
+            return self._should_enrich_context(), None
+    
+    async def _enrich_with_recalled_facts(self, force: bool = False) -> Optional[str]:
+        """
+        Automatically enrich context with recalled facts.
+        
+        Uses LLM-based semantic detection (default) or keyword matching to determine
+        when memory retrieval is needed. The LLM approach is more natural and
+        understands implicit references to past conversations.
+        """
+        # Check cache first
         current_turn_count = len(self._recent_turns)
         if (self._enrichment_cache is not None and 
             self._last_enrichment_turn_count == current_turn_count):
@@ -577,14 +674,36 @@ class MemoryOrchestrator:
         if not self._recent_turns:
             return None
         
-        # Build query from recent turns
-        query_turns = self._recent_turns[-6:]
-        query_text = " ".join([content for _, content in query_turns])[:500]
+        # Determine if enrichment is needed and get optimal query
+        query_text = None
+        should_enrich = force
+        
+        if not force:
+            if self.config.enrichment_mode == "llm":
+                # Use LLM for semantic detection (more natural, human-like)
+                should_enrich, query_text = await self._should_enrich_context_llm()
+            else:
+                # Use keyword matching (simpler, faster, cheaper)
+                should_enrich = self._should_enrich_context()
+        
+        if not should_enrich:
+            return None
+        
+        # If LLM didn't provide a query, build one from recent turns
+        if not query_text:
+            query_turns = self._recent_turns[-6:]
+            query_text = " ".join([content for _, content in query_turns])[:500]
         
         print(f"  [Auto-Enrich] Searching for relevant facts...")
+        print(f"  [Auto-Enrich] Query: {query_text[:100]}...")
         
         try:
-            facts = await self.retrieve_facts(query_text)
+            # Use CFR agent for intelligent retrieval
+            facts = await self.retrieve_facts(
+                query_text,
+                include_summaries=True,  # CFR agent can search summaries
+                include_insights=True    # CFR agent can search insights
+            )
             self._enrichment_cache = {'facts': facts}
             self._last_enrichment_turn_count = current_turn_count
             print(f"  [Auto-Enrich] ✓ Retrieved {len(facts)} chars")

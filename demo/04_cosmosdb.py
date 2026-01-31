@@ -116,7 +116,9 @@ async def main():
     
     # Memory configuration with CosmosDB backend
     config = AgentMemoryConfig(
+        # LLM-based semantic detection for auto-enrichment
         auto_enrich_context=True,
+        enrichment_mode="llm",  # Use LLM to detect when memory retrieval is needed
         enrichment_trigger_keywords=[
             "remember", "recall", "previous", "last time", "before",
             "discussed", "mentioned", "told you", "my profile"
