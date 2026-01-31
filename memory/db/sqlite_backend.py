@@ -53,7 +53,7 @@ SCHEMAS = {
         CREATE TABLE IF NOT EXISTS insights (
             id TEXT PRIMARY KEY,
             user_id TEXT NOT NULL,
-            insight_type TEXT NOT NULL,  -- 'session' or 'long_term'
+            insight_type TEXT NOT NULL,  -- 'session', 'long_term', or 'long_term_item'
             session_ids TEXT,  -- JSON array
             insight_text TEXT NOT NULL,
             insight_vector BLOB,  -- sqlite-vec vector
@@ -63,6 +63,10 @@ SCHEMAS = {
             reflection_flag TEXT,
             processed INTEGER DEFAULT 0,  -- boolean as int
             source_insight_ids TEXT,  -- JSON array for long_term
+            source_session_ids TEXT,  -- JSON array for long_term_item
+            date_added TEXT,  -- For itemized insights
+            last_accessed TEXT,  -- For itemized insights
+            access_count INTEGER DEFAULT 0,  -- For itemized insights
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );
@@ -314,7 +318,7 @@ class SQLiteDatabase(MemoryDatabase):
         
         # Serialize JSON fields
         json_fields = ["metadata", "session_ids", "key_topics",
-                       "extracted_insights", "source_insight_ids"]
+                       "extracted_insights", "source_insight_ids", "source_session_ids"]
         for field in json_fields:
             if field in doc and doc[field] is not None:
                 if isinstance(doc[field], (list, dict)):

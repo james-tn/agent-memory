@@ -626,7 +626,8 @@ Demos organized from **simple → complex** and **local → production**:
 | `03_agent_driven.py` | SQLite | ⭐⭐⭐ | Explicit memory tools - agent controls searches |
 | `04_cosmosdb.py` | CosmosDB | ⭐⭐ | Same as 02 with production backend |
 | `05_server_mode.py` | CosmosDB | ⭐⭐⭐ | Client/server architecture for multi-client apps |
-| `06_interactive_ui.py` | CosmosDB | ⭐⭐⭐⭐ | Full Streamlit web UI with visualization |
+| `06_insight_curation.py` | SQLite | ⭐⭐⭐ | Contradiction resolution & profile evolution |
+| `07_interactive_ui.py` | CosmosDB | ⭐⭐⭐⭐ | Full Streamlit web UI with visualization |
 
 ### Quick Start
 
@@ -676,7 +677,8 @@ agent_memory/
 │   ├── 03_agent_driven.py       # Explicit memory tools
 │   ├── 04_cosmosdb.py           # Production backend
 │   ├── 05_server_mode.py        # Client/server architecture
-│   └── 06_interactive_ui.py     # Full Streamlit web UI
+│   ├── 06_insight_curation.py   # Contradiction resolution & profile evolution
+│   └── 07_interactive_ui.py     # Full Streamlit web UI
 │
 ├── scripts/                     # Utility scripts
 │   ├── setup_cosmosdb.py        # Create CosmosDB containers with vector policies

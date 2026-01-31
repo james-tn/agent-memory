@@ -3,6 +3,54 @@ Prompt templates for Agent Memory Service.
 All prompts use for metadata generation, reflection, and summarization.
 """
 
+# ==================== Session Analysis with Citation Tracking ====================
+
+SESSION_ANALYSIS_WITH_CITATIONS_PROMPT = """You are analyzing a completed conversation session. Your task has TWO parts:
+
+## PART 1: Extract NEW insights from this session
+Extract 0-5 NEW insights about the user that we learned from THIS session.
+
+## PART 2: Cite EXISTING insights that were relevant
+Review the existing long-term insights below. If any were directly relevant or referenced 
+in this conversation (e.g., the user's known preferences affected the advice given, or 
+their goals were discussed), cite them by their ID.
+
+---
+
+{existing_insights_context}
+
+---
+
+SESSION CONTENT:
+{session_content}
+
+---
+
+INSTRUCTIONS:
+
+1. **session_summary**: Write a 2-3 sentence summary of what was discussed.
+
+2. **key_topics**: List 3-5 main topics discussed.
+
+3. **new_insights**: Extract NEW information learned about the user:
+   - Only include insights NOT already captured in existing insights
+   - Categories: preferences, goals, behavior_patterns, knowledge_level, learning_progress
+   - Be CONCISE (1-2 sentences per insight)
+   - Include confidence (0.0-1.0) and importance (high/medium/low)
+
+4. **cited_insights**: List IDs of existing insights that were RELEVANT in this session:
+   - Only cite if the insight was actually used/referenced in the conversation
+   - Explain briefly why each was relevant
+   - Example: If user asked about stocks and their "prefers aggressive investing" insight was relevant
+
+5. **has_meaningful_content**: True if session had substantial content worth analyzing.
+
+Return structured JSON matching the specified schema.
+"""
+
+
+# ==================== Original Prompts ====================
+
 # Metadata Generation (for Interactions)
 METADATA_GENERATION_PROMPT = """You are analyzing a conversation chunk to generate metadata for indexing and retrieval.
 

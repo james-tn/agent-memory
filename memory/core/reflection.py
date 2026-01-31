@@ -700,6 +700,278 @@ IMPORTANT: Keep the profile CONCISE. Use brief, direct language.
             except Exception as e:
                 print(f"  Warning: Could not mark insight {insight_id} as processed: {e}")
 
+    # ==================== Itemized Insight Methods (V2) ====================
+    
+    async def reflect_on_session_with_citations(
+        self,
+        user_id: str,
+        session_id: str,
+        cumulative_summary: str,
+        recent_turns: List[tuple] = None
+    ) -> Dict[str, Any]:
+        """
+        Perform session analysis that:
+        1. Extracts NEW insights from the current session
+        2. Cites EXISTING long-term insights that were relevant
+        
+        This enables tracking which insights are actually being used.
+        
+        Args:
+            user_id: User identifier
+            session_id: Session identifier
+            cumulative_summary: Cumulative summary of the session
+            recent_turns: Optional list of recent (role, content) tuples
+            
+        Returns:
+            Dict with session_summary, key_topics, new_insights, cited_insight_ids
+        """
+        import time
+        from memory.prompts import SESSION_ANALYSIS_WITH_CITATIONS_PROMPT
+        from memory.core.insight_items import (
+            SessionAnalysisWithCitations,
+            LongTermInsightItem,
+            InsightIdGenerator,
+            build_context_with_ids,
+        )
+        
+        start_time = time.time()
+        print(f"[Reflection] Starting session analysis with citations for: {session_id}")
+        
+        # 1. Build session content
+        filtered_turns = []
+        if recent_turns:
+            for role, content in recent_turns[-10:]:
+                if role in ("user", "assistant") and content and content.strip():
+                    filtered_turns.append((role, content))
+        
+        full_context = cumulative_summary or ""
+        if filtered_turns:
+            recent_turns_text = "\n".join([f"{role}: {content}" for role, content in filtered_turns])
+            if full_context:
+                full_context += f"\n\nRecent turns:\n{recent_turns_text}"
+            else:
+                full_context = f"Recent turns:\n{recent_turns_text}"
+        
+        if not full_context or len(full_context.strip()) < 10:
+            print(f"  ⚠ Skipping - insufficient content")
+            return {
+                "session_summary": "Brief session.",
+                "key_topics": [],
+                "new_insights": [],
+                "cited_insight_ids": [],
+                "has_meaningful_content": False
+            }
+        
+        # 2. Get existing long-term insight items
+        existing_items = await self._get_longterm_insight_items(user_id)
+        existing_context = build_context_with_ids(existing_items)
+        print(f"  ✓ Loaded {len(existing_items)} existing long-term insights for citation")
+        
+        # 3. Build prompt
+        prompt = SESSION_ANALYSIS_WITH_CITATIONS_PROMPT.format(
+            existing_insights_context=existing_context,
+            session_content=full_context
+        )
+        
+        # 4. Call LLM with structured output
+        llm_start = time.time()
+        try:
+            analysis = self._call_llm_with_json(
+                system_prompt="You are an expert session analysis assistant with memory tracking.",
+                user_prompt=prompt,
+                output_model=SessionAnalysisWithCitations
+            )
+        except Exception as e:
+            print(f"  Error in LLM call: {e}")
+            return {
+                "session_summary": "Session analysis failed.",
+                "key_topics": [],
+                "new_insights": [],
+                "cited_insight_ids": [],
+                "has_meaningful_content": False
+            }
+        
+        llm_duration = time.time() - llm_start
+        print(f"  ⏱ LLM analysis: {llm_duration:.2f}s")
+        
+        # 5. Process citations - update access counts
+        cited_ids = []
+        for citation in analysis.cited_insights:
+            cited_ids.append(citation.insight_id)
+            print(f"    📎 Cited: {citation.insight_id} - {citation.relevance[:50]}...")
+        
+        if cited_ids:
+            await self._update_insight_access(user_id, cited_ids)
+            print(f"  ✓ Updated access counts for {len(cited_ids)} cited insights")
+        
+        # 6. Create new insight items
+        id_gen = InsightIdGenerator([item.id for item in existing_items])
+        new_insight_items = []
+        
+        for insight in analysis.new_insights:
+            item = LongTermInsightItem(
+                id=id_gen.next_id(),
+                user_id=user_id,
+                insight_text=insight.insight_text,
+                category=insight.category,
+                confidence=insight.confidence,
+                importance=insight.importance,
+                date_added=datetime.utcnow(),
+                last_accessed=datetime.utcnow(),
+                access_count=0,
+                source_session_ids=[session_id],
+            )
+            new_insight_items.append(item)
+        
+        # 7. Store new insight items
+        for item in new_insight_items:
+            await self._store_longterm_insight_item(item)
+        
+        if new_insight_items:
+            print(f"  ✓ Created {len(new_insight_items)} new insight items: {[i.id for i in new_insight_items]}")
+        
+        total_duration = time.time() - start_time
+        print(f"  ✓ Session analysis complete (total: {total_duration:.2f}s)")
+        
+        return {
+            "session_summary": analysis.session_summary,
+            "key_topics": analysis.key_topics,
+            "new_insights": [i.to_dict() for i in new_insight_items],
+            "cited_insight_ids": cited_ids,
+            "has_meaningful_content": analysis.has_meaningful_content
+        }
+    
+    async def _get_longterm_insight_items(self, user_id: str) -> List:
+        """Get all long-term insight items for a user."""
+        from memory.core.insight_items import LongTermInsightItem
+        
+        # Query all long_term_item insights for this user
+        # Note: order_by uses 'created_at' which exists in the schema
+        items = await self.database.query(
+            container=ContainerType.INSIGHTS,
+            filters={"user_id": user_id, "insight_type": "long_term_item"},
+            order_by="-created_at"  # Use created_at which is guaranteed to exist
+        )
+        
+        result = []
+        for item_data in items:
+            try:
+                result.append(LongTermInsightItem.from_dict(item_data))
+            except Exception as e:
+                print(f"  Warning: Could not parse insight item {item_data.get('id')}: {e}")
+        
+        # Sort by last_accessed in Python (field stored in JSON)
+        result.sort(key=lambda x: x.last_accessed, reverse=True)
+        
+        return result
+    
+    async def _store_longterm_insight_item(self, item) -> Dict[str, Any]:
+        """Store a long-term insight item."""
+        # Generate embedding
+        embedding = self.embedding_provider.get_embedding(item.insight_text)
+        item.embedding = embedding
+        
+        doc = item.to_dict()
+        
+        result = await self.database.upsert(
+            container=ContainerType.INSIGHTS,
+            document=doc,
+            partition_key=item.user_id
+        )
+        return result
+    
+    async def _update_insight_access(self, user_id: str, insight_ids: List[str]) -> None:
+        """Update access_count and last_accessed for cited insights."""
+        for insight_id in insight_ids:
+            try:
+                doc = await self.database.get_by_id(
+                    container=ContainerType.INSIGHTS,
+                    document_id=insight_id,
+                    partition_key=user_id
+                )
+                if doc and doc.get("insight_type") == "long_term_item":
+                    doc["access_count"] = doc.get("access_count", 0) + 1
+                    doc["last_accessed"] = datetime.utcnow().isoformat()
+                    
+                    await self.database.upsert(
+                        container=ContainerType.INSIGHTS,
+                        document=doc,
+                        partition_key=user_id
+                    )
+            except Exception as e:
+                print(f"  Warning: Could not update access for {insight_id}: {e}")
+    
+    async def synthesize_longterm_summary(
+        self,
+        user_id: str,
+        top_n: int = 20
+    ) -> Optional[str]:
+        """
+        Create a readable summary from top-N ranked insight items.
+        
+        Args:
+            user_id: User identifier
+            top_n: Number of top insights to include
+            
+        Returns:
+            Formatted summary string for context injection
+        """
+        from memory.core.insight_items import rank_insights
+        
+        items = await self._get_longterm_insight_items(user_id)
+        
+        if not items:
+            return None
+        
+        # Rank and get top N
+        ranked = rank_insights(items)
+        top_items = [item for item, score in ranked[:top_n]]
+        
+        # Group by category
+        by_category = {}
+        for item in top_items:
+            if item.category not in by_category:
+                by_category[item.category] = []
+            by_category[item.category].append(item)
+        
+        # Build summary
+        parts = []
+        for category, cat_items in by_category.items():
+            parts.append(f"\n{category.upper()}:")
+            for item in cat_items:
+                parts.append(f"- {item.insight_text}")
+        
+        return "\n".join(parts) if parts else None
+    
+    async def get_insight_stats(self, user_id: str) -> Dict[str, Any]:
+        """Get statistics about a user's long-term insights."""
+        from memory.core.insight_items import rank_insights
+        
+        items = await self._get_longterm_insight_items(user_id)
+        
+        if not items:
+            return {"total_items": 0}
+        
+        ranked = rank_insights(items)
+        
+        # Calculate stats
+        total_access = sum(item.access_count for item in items)
+        by_category = {}
+        for item in items:
+            by_category[item.category] = by_category.get(item.category, 0) + 1
+        
+        return {
+            "total_items": len(items),
+            "total_access_count": total_access,
+            "by_category": by_category,
+            "top_5_by_rank": [(item.id, f"{score:.2f}") for item, score in ranked[:5]],
+            "most_accessed": sorted(
+                [(item.id, item.access_count) for item in items],
+                key=lambda x: x[1],
+                reverse=True
+            )[:5]
+        }
+
 
 # Backward compatibility alias
 ReflectionProcess = Reflection

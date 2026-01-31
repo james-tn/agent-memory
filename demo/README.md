@@ -9,7 +9,10 @@ Demos organized from **simple → complex** and **local → production**:
 | 03 | [Agent-Driven](03_agent_driven.py) | SQLite | ⭐⭐⭐ | Explicit memory tools - agent controls searches |
 | 04 | [CosmosDB](04_cosmosdb.py) | CosmosDB | ⭐⭐ | Same as 02 but with production backend |
 | 05 | [Server Mode](05_server_mode.py) | CosmosDB | ⭐⭐⭐ | Client/server architecture for multi-client apps |
-| 06 | [Interactive UI](06_interactive_ui.py) | CosmosDB | ⭐⭐⭐⭐ | Full Streamlit web UI with visualization |
+| 06 | [Insight Curation](06_insight_curation.py) | SQLite | ⭐⭐⭐ | Contradiction resolution & profile evolution |
+| 07 | [Interactive UI](07_interactive_ui.py) | CosmosDB | ⭐⭐⭐⭐ | Full Streamlit web UI with visualization |
+| 08 | [Itemized Insights](08_itemized_insights.py) | SQLite | ⭐⭐⭐ | Memory prioritization: recency, frequency, bounded memory |
+| 09 | [Itemized Insights CosmosDB](09_itemized_insights_cosmos.py) | CosmosDB | ⭐⭐⭐ | Same as 08 but with production CosmosDB backend |
 
 ---
 
@@ -163,7 +166,39 @@ async with MemoryServiceClient("http://localhost:8000", "user123") as client:
 
 ---
 
-## Demo 06: Interactive UI
+## Demo 06: Insight Curation
+
+**Demonstrates how long-term insights evolve over time:**
+- Profile evolution as user preferences change
+- Contradiction resolution (old preferences replaced by new)
+- Outdated information pruning
+- **Real LLM verification** that the profile actually affects agent behavior
+
+**Key Configuration:**
+```python
+config = AgentMemoryConfig(
+    buffer_size=6,
+    longterm_synthesis_frequency=1,  # Synthesize after EVERY session
+)
+```
+
+**Scenario:** A financial advisor client whose risk tolerance evolves:
+1. **Session 1:** New graduate, conservative, avoids stocks completely (simulated)
+2. **Session 2:** Promoted to $120k, now aggressive 90% stocks (simulated)  
+3. **Session 3:** Real LLM conversation - user's dad says "play it safe" but agent should know user is now aggressive
+
+**What to observe:** 
+- The long-term profile updates to reflect the user's CURRENT stance (aggressive)
+- The final session uses a real LLM response that proves the agent knows the evolved profile
+- The agent respectfully disagrees with conservative advice because it knows the user's preferences have changed
+
+```bash
+uv run python demo/06_insight_curation.py
+```
+
+---
+
+## Demo 07: Interactive UI
 
 **Full-featured Streamlit web application:**
 - Real-time chat with memory-aware agent
@@ -176,8 +211,67 @@ async with MemoryServiceClient("http://localhost:8000", "user123") as client:
 uv run uvicorn server.main:app --port 8000
 
 # Run Streamlit app
-streamlit run demo/06_interactive_ui.py
+streamlit run demo/07_interactive_ui.py
 ```
+
+---
+
+## Demo 08: Itemized Insights (Memory Prioritization)
+
+**Demonstrates human-like memory with bounded capacity:**
+- Each insight is individually tracked with ID, timestamp, access count
+- LLM cites existing insights during reflection (strengthening them)
+- Retention score based on **Ebbinghaus forgetting curve**
+- Maximum 5 insights retained - least relevant are pruned
+
+**Key Concepts:**
+1. **RECENCY**: New insights get a 7-day "grace period" boost (like fresh memories being more vivid)
+2. **FREQUENCY**: Cited insights increase `access_count`, slowing decay (rehearsal strengthens memory)
+3. **FORGETTING**: Old, uncited insights decay exponentially over time
+4. **BOUNDED MEMORY**: Only top-5 scored insights are retained (like human working memory limits)
+
+**6-Month Simulation:** Runs 6 financial advisor sessions with simulated dates, showing how:
+- INS-0001 (conservative preference) survives for months due to frequent citation
+- INS-0002, INS-0003 are forgotten early (never cited again)
+- New insights compete for limited memory slots
+- Eventually even INS-0001 is forgotten when outcompeted by newer insights
+
+```bash
+uv run python demo/08_itemized_insights.py
+```
+
+**Scoring Formula (Ebbinghaus-inspired):**
+```python
+def calculate_retention_score(item, now):
+    # Decay over time (30-day half-life, adjusted by access_count)
+    days_since_access = (now - item.last_accessed).days
+    strength = 1.0 + math.log1p(item.access_count)  # More access = slower decay
+    retention = math.exp(-days_since_access / (30 * strength))
+    
+    # New insights get a temporary boost
+    recency_boost = 0.3 if (now - item.date_added).days < 7 else 0.0
+    
+    return (retention + recency_boost) * importance_weight * confidence_factor
+```
+
+---
+
+## Demo 09: Itemized Insights (CosmosDB)
+
+**Same as Demo 08 but with Azure CosmosDB backend:**
+- Production-ready with global distribution
+- Vector search at scale
+- Enterprise security (Azure AD authentication)
+- Schema-less storage - new fields work automatically
+
+```bash
+# Requires COSMOS_ENDPOINT (and optionally COSMOS_KEY, or Azure AD auth)
+uv run python demo/09_itemized_insights_cosmos.py
+```
+
+**Authentication Options:**
+1. **Key-based**: Set `COSMOS_KEY` environment variable
+2. **Azure AD**: Uses `DefaultAzureCredential` if no key is set
 
 ---
 
