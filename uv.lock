@@ -40,14 +40,14 @@ wheels = [
 
 [[package]]
 name = "agent-framework"
-version = "1.0.0b260128"
+version = "1.0.0b260130"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "agent-framework-core", extra = ["all"] },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/7f/b3/b4f73c8c00959f23509c2fb902b25ee089b760d730b05eaf81e633e7dad0/agent_framework-1.0.0b260128.tar.gz", hash = "sha256:9504052cd45a3cb5c6c9777ebbc479713698db700bd1b438b1134fea0f77c5ab", size = 3472441 }
+sdist = { url = "https://files.pythonhosted.org/packages/93/10/ba51bf04ea2900897a221664e4e673dcc7a7a58a6658eeb85115e920d9b4/agent_framework-1.0.0b260130.tar.gz", hash = "sha256:50e13b74366b8092cb81769f07b3b42d6ddc8888a51244933c3214df591b7108", size = 3506765 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/b2/77/d68f3f389994055f85092db68ac7a7722b84bc3dd3099564d49447e6de25/agent_framework-1.0.0b260128-py3-none-any.whl", hash = "sha256:1630514cbb21004b51e31694b40ad798b3a598aa9c0b3c9cc532eb98e24ac78c", size = 5553 },
+    { url = "https://files.pythonhosted.org/packages/bb/3d/2a8efa9085c7fec503a64038f986faf0cdf7f5de853c4ae30724e2e2bda6/agent_framework-1.0.0b260130-py3-none-any.whl", hash = "sha256:b9ba1487f91ab22031e01b5c09e5649181fd717f807d94f22ec43a409c43cde1", size = 5552 },
 ]
 
 [[package]]
@@ -162,7 +162,7 @@ wheels = [
 
 [[package]]
 name = "agent-framework-core"
-version = "1.0.0b260128"
+version = "1.0.0b260130"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "azure-identity" },
@@ -176,9 +176,9 @@ dependencies = [
     { name = "pydantic-settings" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/f1/74/5279f0b2af6a940d314fcd90805023743339bd188d81f0d6715b66bfec89/agent_framework_core-1.0.0b260128.tar.gz", hash = "sha256:42ea86c217fe00a0eceaeb9714375f18228907dc46911aaa8cff84ac1cde170b", size = 301842 }
+sdist = { url = "https://files.pythonhosted.org/packages/4d/39/e508e778219bd6d20e023a6f48235861a639e3cf888776f9e873bbad3c6b/agent_framework_core-1.0.0b260130.tar.gz", hash = "sha256:030a5b2ced796eec6839c2dabad90b4bd1ea33d1026f3ed1813050a56ccfa4ec", size = 301823 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/23/da/f2fe70bb3c11a04ad41d69c4f2c0524145c07d0c6424bdfba8ff85513449/agent_framework_core-1.0.0b260128-py3-none-any.whl", hash = "sha256:aa51ff13f25f750f05cf8a8b65e35b62249306beb44279301d71342c50dbb6c1", size = 348070 },
+    { url = "https://files.pythonhosted.org/packages/36/68/afe66c72951a279e0fe048fd5af1e775528cde40dbdab8ec03b42c545df4/agent_framework_core-1.0.0b260130-py3-none-any.whl", hash = "sha256:75b4dd0ca2ae52574d406cf5c9ed7adf63e187379f72fce891743254d83dfd56", size = 348724 },
 ]
 
 [package.optional-dependencies]
@@ -352,7 +352,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "agent-framework", specifier = "==1.0.0b260128" },
+    { name = "agent-framework", specifier = ">=1.0.0b260130" },
     { name = "azure-cosmos", specifier = "==4.14.0" },
     { name = "azure-identity", specifier = ">=1.19.0" },
     { name = "fastapi", specifier = ">=0.115.0" },
@@ -825,7 +825,7 @@ name = "clr-loader"
 version = "0.2.10"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "cffi" },
+    { name = "cffi", marker = "python_full_version < '3.14'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/18/24/c12faf3f61614b3131b5c98d3bf0d376b49c7feaa73edca559aeb2aee080/clr_loader-0.2.10.tar.gz", hash = "sha256:81f114afbc5005bafc5efe5af1341d400e22137e275b042a8979f3feb9fc9446", size = 83605 }
 wheels = [
@@ -1997,8 +1997,8 @@ name = "powerfx"
 version = "0.0.34"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "cffi" },
-    { name = "pythonnet" },
+    { name = "cffi", marker = "python_full_version < '3.14'" },
+    { name = "pythonnet", marker = "python_full_version < '3.14'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/9f/fb/6c4bf87e0c74ca1c563921ce89ca1c5785b7576bca932f7255cdf81082a7/powerfx-0.0.34.tar.gz", hash = "sha256:956992e7afd272657ed16d80f4cad24ec95d9e4a79fb9dfa4a068a09e136af32", size = 3237555 }
 wheels = [
@@ -2349,7 +2349,7 @@ name = "pythonnet"
 version = "3.0.5"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "clr-loader" },
+    { name = "clr-loader", marker = "python_full_version < '3.14'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/9a/d6/1afd75edd932306ae9bd2c2d961d603dc2b52fcec51b04afea464f1f6646/pythonnet-3.0.5.tar.gz", hash = "sha256:48e43ca463941b3608b32b4e236db92d8d40db4c58a75ace902985f76dac21cf", size = 239212 }
 wheels = [

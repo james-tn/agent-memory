@@ -797,7 +797,8 @@ azd up
 ```
 
 ## License
+This project is licensed under the terms described in the [LICENSE.md](LICENSE.md) file.
 
-MIT
+
 
 
