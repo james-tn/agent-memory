@@ -20,6 +20,11 @@ import os
 import sys
 from dotenv import load_dotenv
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 load_dotenv()
 
 # Add project root
@@ -27,7 +32,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from openai import AzureOpenAI
 from azure.identity import DefaultAzureCredential
-from agent_framework import ChatAgent, tool
+from agent_framework import Agent, tool
 from agent_framework.azure import AzureOpenAIChatClient
 
 from memory import AgentMemory, AgentMemoryConfig
@@ -53,7 +58,7 @@ def get_roth_ira_limit(year: int) -> str:
 
 
 async def run_session(
-    agent: ChatAgent,
+    agent: Agent,
     memory: AgentMemory,
     session_name: str,
     queries: list[str]
@@ -116,19 +121,13 @@ async def main():
     
     # Memory configuration with CosmosDB backend
     config = AgentMemoryConfig(
-        # LLM-based semantic detection for auto-enrichment
+        # Auto-enrichment with keyword triggers
         auto_enrich_context=True,
-        enrichment_mode="llm",  # Use LLM to detect when memory retrieval is needed
         enrichment_trigger_keywords=[
             "remember", "recall", "previous", "last time", "before",
             "discussed", "mentioned", "told you", "my profile"
         ],
-        include_longterm_insights=True,
-        include_recent_sessions=True,
-        include_cumulative_summary=True,
-        include_active_turns=False,
         longterm_synthesis_frequency=1,
-        inject_recall_tool=False,
         auto_manage_sessions=False,
         # CosmosDB specific
         database_name=os.getenv("COSMOS_DATABASE_NAME", "agent_memory_db"),
@@ -152,8 +151,8 @@ async def main():
     )
     
     # Create the agent with memory as context_provider
-    agent = ChatAgent(
-        chat_client=chat_client,
+    agent = Agent(
+        client=chat_client,
         instructions="""You are an expert financial advisor specializing in retirement planning.
 
 Your approach:
@@ -164,7 +163,7 @@ Your approach:
 
 Always be professional, accurate, and personalized.""",
         tools=[get_401k_limit, get_roth_ira_limit],
-        context_provider=memory,
+        context_providers=[memory],
     )
     
     try:
@@ -225,6 +224,14 @@ Always be professional, accurate, and personalized.""",
         for session in sessions[:3]:
             summary = session.get('summary', '')[:50]
             print(f"   • {summary}...")
+
+    except Exception as exc:
+        message = str(exc)
+        if "CosmosHttpResponseError" in message or "Forbidden" in message or "firewall" in message.lower():
+            print("\n⚠️ CosmosDB access is blocked in this environment (firewall/network restrictions).")
+            print("   Demo skipped gracefully. Configure Cosmos DB firewall/network to run end-to-end.")
+            return
+        raise
         
     finally:
         await memory.close()

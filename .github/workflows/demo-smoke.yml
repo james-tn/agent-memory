@@ -1,0 +1,113 @@
+name: Demo Smoke
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'demo/**'
+      - 'memory/**'
+      - 'agent/**'
+      - 'client/**'
+      - 'server/**'
+      - 'pyproject.toml'
+      - 'uv.lock'
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    env:
+      AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
+      AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
+      AZURE_OPENAI_REASONING_MODEL: ${{ secrets.AZURE_OPENAI_REASONING_MODEL }}
+      AZURE_OPENAI_PROCESSING_MODEL: ${{ secrets.AZURE_OPENAI_PROCESSING_MODEL }}
+      AZURE_OPENAI_EMB_DEPLOYMENT: ${{ secrets.AZURE_OPENAI_EMB_DEPLOYMENT }}
+      COSMOS_ENDPOINT: ${{ secrets.COSMOS_ENDPOINT }}
+      COSMOS_KEY: ${{ secrets.COSMOS_KEY }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Verify required Azure OpenAI secrets
+        id: preflight
+        shell: bash
+        run: |
+          missing=0
+          for var in AZURE_OPENAI_ENDPOINT AZURE_OPENAI_API_KEY AZURE_OPENAI_REASONING_MODEL AZURE_OPENAI_EMB_DEPLOYMENT; do
+            if [ -z "${!var}" ]; then
+              echo "Missing secret/env: $var"
+              missing=1
+            fi
+          done
+          if [ "$missing" -eq 1 ]; then
+            echo "can_run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "can_run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install dependencies
+        if: steps.preflight.outputs.can_run == 'true'
+        run: uv sync
+
+      - name: Run core smoke demos
+        if: steps.preflight.outputs.can_run == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          demos=(
+            "demo/01_basic_memory.py"
+            "demo/02_agent_framework.py"
+            "demo/03_agent_driven.py"
+            "demo/06_insight_curation.py"
+            "demo/08_itemized_insights.py"
+          )
+
+          for demo in "${demos[@]}"; do
+            echo "=== RUN $demo ==="
+            uv run --project . python "$demo"
+          done
+
+      - name: Run optional Cosmos smoke demos
+        if: steps.preflight.outputs.can_run == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          run_cosmos_demo() {
+            demo="$1"
+            echo "=== RUN $demo ==="
+            set +e
+            output=$(uv run --project . python "$demo" 2>&1)
+            code=$?
+            set -e
+
+            echo "$output"
+
+            if [ $code -eq 0 ]; then
+              return 0
+            fi
+
+            if echo "$output" | grep -qi "skipped gracefully"; then
+              echo "Cosmos demo skipped gracefully: $demo"
+              return 0
+            fi
+
+            echo "Cosmos demo failed: $demo"
+            return 1
+          }
+
+          run_cosmos_demo "demo/04_cosmosdb.py"
+          run_cosmos_demo "demo/09_itemized_insights_cosmos.py"
+
+      - name: Skip note when secrets missing
+        if: steps.preflight.outputs.can_run != 'true'
+        run: |
+          echo "Skipping smoke demos because required Azure OpenAI secrets are not configured."

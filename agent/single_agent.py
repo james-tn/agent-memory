@@ -2,7 +2,7 @@ import json
 import logging
 from typing import Any, Dict, List
 
-from agent_framework import AgentThread, ChatAgent, MCPStreamableHTTPTool
+from agent_framework import Agent as AFAgent, AgentSession, MCPStreamableHTTPTool
 from agent_framework.azure import AzureOpenAIChatClient
 
 from agents.base_agent import BaseAgent
@@ -15,8 +15,8 @@ class Agent(BaseAgent):
 
     def __init__(self, state_store: Dict[str, Any], session_id: str, access_token: str | None = None) -> None:
         super().__init__(state_store, session_id)
-        self._agent: ChatAgent | None = None
-        self._thread: AgentThread | None = None
+        self._agent: AFAgent | None = None
+        self._session: AgentSession | None = None
         self._initialized = False
         self._access_token = access_token
         self._ws_manager = None  # WebSocket manager for streaming
@@ -58,12 +58,11 @@ class Agent(BaseAgent):
 
         tools = mcp_tools[0] if mcp_tools else None
 
-        self._agent = ChatAgent(
+        self._agent = AFAgent(
             name="ai_assistant",
-            chat_client=chat_client,
+            client=chat_client,
             instructions=instructions,
             tools=tools,
-            model=self.openai_model_name,
         )
 
         try:
@@ -74,10 +73,13 @@ class Agent(BaseAgent):
 
         await self._log_mcp_tool_details()
 
-        if self.state:
-            self._thread = await self._agent.deserialize_thread(self.state)
+        if self.state and isinstance(self.state, dict):
+            try:
+                self._session = AgentSession.from_dict(self.state)
+            except Exception:
+                self._session = self._agent.create_session()
         else:
-            self._thread = self._agent.get_new_thread()
+            self._session = self._agent.create_session()
 
         self._initialized = True
 
@@ -130,7 +132,7 @@ class Agent(BaseAgent):
     async def chat_async(self, prompt: str) -> str:
         await self._setup_single_agent()
 
-        if not self._agent or not self._thread:
+        if not self._agent or not self._session:
             raise RuntimeError("Agent Framework single agent failed to initialize correctly.")
 
         # Increment turn counter for this new conversation turn and persist to state store
@@ -142,7 +144,7 @@ class Agent(BaseAgent):
             return await self._chat_async_streaming(prompt)
         
         # Non-streaming path
-        response = await self._agent.run(prompt, thread=self._thread)
+        response = await self._agent.run(prompt, session=self._session)
         assistant_response = response.text
 
         messages = [
@@ -151,14 +153,14 @@ class Agent(BaseAgent):
         ]
         self.append_to_chat_history(messages)
 
-        new_state = await self._thread.serialize()
+        new_state = self._session.to_dict()
         self._setstate(new_state)
 
         return assistant_response
 
     async def _chat_async_streaming(self, prompt: str) -> str:
         """Handle chat with streaming support via WebSocket."""
-        if not self._agent or not self._thread:
+        if not self._agent or not self._session:
             raise RuntimeError("Agent Framework single agent failed to initialize correctly.")
 
         # Notify UI that agent started - with convention flag
@@ -176,7 +178,8 @@ class Agent(BaseAgent):
         full_response = []
         
         try:
-            async for chunk in self._agent.run_stream(prompt, thread=self._thread):
+            stream = self._agent.run(prompt, session=self._session, stream=True)
+            async for chunk in stream:
                 # Process contents in the chunk
                 if hasattr(chunk, 'contents') and chunk.contents:
                     for content in chunk.contents:
@@ -211,7 +214,9 @@ class Agent(BaseAgent):
             logger.error("[STREAMING] Error during single agent streaming: %s", exc, exc_info=True)
             raise
 
-        assistant_response = ''.join(full_response)
+        final_response = await stream.get_final_response()
+
+        assistant_response = ''.join(full_response) or final_response.text
 
         # Send final result
         if self._ws_manager:
@@ -229,7 +234,7 @@ class Agent(BaseAgent):
         ]
         self.append_to_chat_history(messages)
 
-        new_state = await self._thread.serialize()
+        new_state = self._session.to_dict()
         self._setstate(new_state)
 
         return assistant_response

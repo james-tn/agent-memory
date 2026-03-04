@@ -29,6 +29,11 @@ uv run python demo/02_agent_framework.py
 uv run python demo/03_agent_driven.py
 ```
 
+### Execution Notes
+
+- **Demo 07 (Streamlit):** Running `python demo/07_interactive_ui.py` directly prints Streamlit bare-mode warnings. Use `streamlit run demo/07_interactive_ui.py` for normal interactive UI behavior.
+- **Cosmos demos (04, 09):** If Cosmos DB firewall/network/auth blocks access, these demos print a clear "skipped gracefully" message and exit cleanly.
+
 ---
 
 ## Demo 01: Basic Memory (Simplest)

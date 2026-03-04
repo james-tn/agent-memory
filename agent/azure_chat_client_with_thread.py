@@ -4,7 +4,7 @@ import asyncio
 from random import randint
 from typing import Annotated
 
-from agent_framework import AgentThread, ChatAgent, ChatMessageStore
+from agent_framework import Agent, AgentSession
 from agent_framework.azure import AzureOpenAIChatClient
 from azure.identity import AzureCliCredential
 from pydantic import Field
@@ -31,8 +31,8 @@ async def example_with_automatic_thread_creation() -> None:
 
     # For authentication, run `az login` command in terminal or replace AzureCliCredential with preferred
     # authentication option.
-    agent = ChatAgent(
-        chat_client=AzureOpenAIChatClient(credential=AzureCliCredential()),
+    agent = Agent(
+        client=AzureOpenAIChatClient(credential=AzureCliCredential()),
         instructions="You are a helpful weather agent.",
         tools=get_weather,
     )
@@ -58,31 +58,31 @@ async def example_with_thread_persistence() -> None:
 
     # For authentication, run `az login` command in terminal or replace AzureCliCredential with preferred
     # authentication option.
-    agent = ChatAgent(
-        chat_client=AzureOpenAIChatClient(credential=AzureCliCredential()),
+    agent = Agent(
+        client=AzureOpenAIChatClient(credential=AzureCliCredential()),
         instructions="You are a helpful weather agent.",
         tools=get_weather,
     )
 
-    # Create a new thread that will be reused
-    thread = agent.get_new_thread()
+    # Create a new session that will be reused
+    session = agent.create_session()
 
     # First conversation
     query1 = "What's the weather like in Tokyo?"
     print(f"User: {query1}")
-    result1 = await agent.run(query1, thread=thread)
+    result1 = await agent.run(query1, session=session)
     print(f"Agent: {result1.text}")
 
     # Second conversation using the same thread - maintains context
     query2 = "How about London?"
     print(f"\nUser: {query2}")
-    result2 = await agent.run(query2, thread=thread)
+    result2 = await agent.run(query2, session=session)
     print(f"Agent: {result2.text}")
 
     # Third conversation - agent should remember both previous cities
     query3 = "Which of the cities I asked about has better weather?"
     print(f"\nUser: {query3}")
-    result3 = await agent.run(query3, thread=thread)
+    result3 = await agent.run(query3, session=session)
     print(f"Agent: {result3.text}")
     print("Note: The agent remembers context from previous messages in the same thread.\n")
 
@@ -93,52 +93,50 @@ async def example_with_existing_thread_messages() -> None:
 
     # For authentication, run `az login` command in terminal or replace AzureCliCredential with preferred
     # authentication option.
-    agent = ChatAgent(
-        chat_client=AzureOpenAIChatClient(credential=AzureCliCredential()),
+    agent = Agent(
+        client=AzureOpenAIChatClient(credential=AzureCliCredential()),
         instructions="You are a helpful weather agent.",
         tools=get_weather,
     )
 
     # Start a conversation and build up message history
-    thread = agent.get_new_thread()
+    session = agent.create_session()
 
     query1 = "What's the weather in Paris?"
     print(f"User: {query1}")
-    result1 = await agent.run(query1, thread=thread)
+    result1 = await agent.run(query1, session=session)
     print(f"Agent: {result1.text}")
 
-    # The thread now contains the conversation history in memory
-    if thread.message_store:
-        messages = await thread.message_store.list_messages()
-        print(f"Thread contains {len(messages or [])} messages")
+    # The session now contains state that tracks conversation continuity
+    serialized = session.to_dict()
+    print(f"Session contains state keys: {list(serialized.get('state', {}).keys())}")
 
     print("\n--- Continuing with the same thread in a new agent instance ---")
 
     # Create a new agent instance but use the existing thread with its message history
-    new_agent = ChatAgent(
-        chat_client=AzureOpenAIChatClient(credential=AzureCliCredential()),
+    new_agent = Agent(
+        client=AzureOpenAIChatClient(credential=AzureCliCredential()),
         instructions="You are a helpful weather agent.",
         tools=get_weather,
     )
 
-    # Use the same thread object which contains the conversation history
+    # Use the same session object which contains the conversation state
     query2 = "What was the last city I asked about?"
     print(f"User: {query2}")
-    result2 = await new_agent.run(query2, thread=thread)
+    result2 = await new_agent.run(query2, session=session)
     print(f"Agent: {result2.text}")
-    print("Note: The agent continues the conversation using the local message history.\n")
+    print("Note: The agent continues the conversation using session state.\n")
 
-    print("\n--- Alternative: Creating a new thread from existing messages ---")
+    print("\n--- Alternative: Creating a new session from serialized state ---")
 
-    # You can also create a new thread from existing messages
-    messages = await thread.message_store.list_messages() if thread.message_store else []
-    new_thread = AgentThread(message_store=ChatMessageStore(messages))
+    # You can also create a new session from existing serialized state
+    new_session = AgentSession.from_dict(serialized)
 
     query3 = "How does the Paris weather compare to London?"
     print(f"User: {query3}")
-    result3 = await new_agent.run(query3, thread=new_thread)
+    result3 = await new_agent.run(query3, session=new_session)
     print(f"Agent: {result3.text}")
-    print("Note: This creates a new thread with the same conversation history.\n")
+    print("Note: This creates a new session with the same conversation state.\n")
 
 
 async def main() -> None:

@@ -38,6 +38,11 @@ import sys
 from pathlib import Path
 from typing import Annotated
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 # Setup paths
 BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BASE_DIR))
@@ -46,7 +51,7 @@ from dotenv import load_dotenv
 load_dotenv(BASE_DIR / '.env')
 
 from azure.identity import DefaultAzureCredential
-from agent_framework import ChatAgent, tool
+from agent_framework import Agent, tool
 from agent_framework.azure import AzureOpenAIChatClient
 from openai import AzureOpenAI
 
@@ -149,7 +154,7 @@ def create_memory_tools(memory: AgentMemory):
 # Demo Session Runner
 # ============================================================================
 
-async def run_session(agent: ChatAgent, memory: AgentMemory, queries: list[str], session_name: str):
+async def run_session(agent: Agent, memory: AgentMemory, queries: list[str], session_name: str):
     """Run a conversation session."""
     print(f"\n{'='*70}")
     print(f"🏥 SESSION: {session_name}")
@@ -215,16 +220,7 @@ async def main():
     config = AgentMemoryConfig(
         # Disable automatic context enrichment
         auto_enrich_context=False,  # Agent controls memory access via tools
-        
-        # Minimal passive context - just show session continuity
-        include_longterm_insights=False,   # Agent will call get_patient_profile if needed
-        include_recent_sessions=True,      # Brief session history for continuity
-        include_cumulative_summary=True,   # Current session context
-        include_active_turns=False,        # Agent has its own thread
-        
-        # No hidden tool injection - we're using explicit tools
-        inject_recall_tool=False,
-        
+
         # Session management
         auto_manage_sessions=False,
         longterm_synthesis_frequency=1,
@@ -249,8 +245,8 @@ async def main():
     )
     
     # Create agent with memory tools
-    agent = ChatAgent(
-        chat_client=chat_client,
+    agent = Agent(
+        client=chat_client,
         instructions="""You are a careful, thorough medical doctor.
 
 CRITICAL SAFETY RULES:
@@ -266,7 +262,7 @@ When a patient asks for medication:
 
 Be thorough, safety-conscious, and explain your reasoning.""",
         tools=memory_tools,  # Explicit memory access tools
-        context_provider=memory,  # Minimal context (session summary only)
+        context_providers=[memory],  # Minimal context (session summary only)
     )
     
     try:

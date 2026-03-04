@@ -28,6 +28,11 @@ import os
 import sys
 from pathlib import Path
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 # Setup paths
 BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BASE_DIR))
@@ -36,7 +41,7 @@ from dotenv import load_dotenv
 load_dotenv(BASE_DIR / '.env')
 
 from azure.identity import DefaultAzureCredential
-from agent_framework import ChatAgent
+from agent_framework import Agent
 from agent_framework.azure import AzureOpenAIChatClient
 from openai import AzureOpenAI
 
@@ -70,7 +75,7 @@ def get_roth_ira_limit(year: int = 2025) -> str:
 # Demo
 # ============================================================================
 
-async def run_session(agent: ChatAgent, memory: AgentMemory, queries: list[str], session_name: str):
+async def run_session(agent: Agent, memory: AgentMemory, queries: list[str], session_name: str):
     """
     Run a conversation session.
     
@@ -140,28 +145,17 @@ async def main():
     
     # Memory configuration with auto-enrichment and granular control
     config = AgentMemoryConfig(
-        # Auto-enrichment: LLM-based semantic detection (more natural than keywords)
+        # Auto-enrichment with keyword triggers
         auto_enrich_context=True,
-        enrichment_mode="llm",  # "llm" (semantic, human-like) or "keyword" (simple, fast)
-        # Fallback keywords (used when enrichment_mode="keyword")
         enrichment_trigger_keywords=[
             "remember", "recall", "previous", "last time", "before",
             "discussed", "mentioned", "told you", "my profile",
             "based on", "given my", "considering my"
         ],
-        
-        # Granular context control - what to inject
-        include_longterm_insights=True,   # Include user insights
-        include_recent_sessions=True,     # Include past session summaries
-        include_cumulative_summary=True,  # Include current session summary
-        include_active_turns=False,       # Don't duplicate recent turns (agent has them)
-        
+
         # Long-term synthesis - create user profile after every session
         longterm_synthesis_frequency=1,   # Synthesize after every session (was 5)
-        
-        # Hidden tool injection - agent can search memory autonomously
-        inject_recall_tool=False,  # Set to True to enable hidden recall_facts tool
-        
+
         # Session management
         auto_manage_sessions=False,  # We'll manage sessions explicitly for demo
     )
@@ -186,8 +180,8 @@ async def main():
     # This is the key integration - memory automatically:
     # 1. Injects context before each turn (via invoking())
     # 2. Stores each turn after response (via invoked())
-    agent = ChatAgent(
-        chat_client=chat_client,
+    agent = Agent(
+        client=chat_client,
         instructions="""You are an expert financial advisor specializing in retirement planning.
 
 Your approach:
@@ -198,7 +192,7 @@ Your approach:
 
 Always be professional, accurate, and personalized.""",
         tools=[get_401k_limit, get_roth_ira_limit],
-        context_provider=memory,  # ← Automatic memory integration!
+        context_providers=[memory],  # ← Automatic memory integration!
     )
     
     try:

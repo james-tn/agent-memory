@@ -16,7 +16,7 @@ The agent has three search tools:
 from typing import List, Dict, Optional, Any, Annotated
 from dataclasses import dataclass
 
-from agent_framework import ChatAgent, tool
+from agent_framework import Agent, tool
 from agent_framework.azure import AzureOpenAIChatClient
 from azure.identity import DefaultAzureCredential
 
@@ -125,8 +125,8 @@ class FactRetrieval:
         self._search_insights_tool = search_insights_tool
         
         # Create the Agent Framework agent with search_interactions tool by default
-        self.agent = ChatAgent(
-            chat_client=AzureOpenAIChatClient(
+        self.agent = Agent(
+            client=AzureOpenAIChatClient(
                 credential=DefaultAzureCredential(),
                 deployment_name=self.config.REASONING_MODEL
             ),
@@ -170,10 +170,7 @@ After searching, synthesize the findings into a clear, concise response.""",
         if include_insights:
             tools.append(self._search_insights_tool)
         
-        # Update agent tools dynamically
-        self.agent.tools = tools
-        
-        result = await self.agent.run(query)
+        result = await self.agent.run(query, tools=tools)
         return result.text
     
     async def _search_interactions(self, query: str, max_results: int = 5) -> List[SearchResult]:

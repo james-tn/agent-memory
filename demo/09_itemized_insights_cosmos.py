@@ -310,7 +310,17 @@ Watch how insights compete for limited memory slots!
             print("Please set COSMOS_KEY or configure Azure AD credentials.")
             return
     
-    await db.initialize()
+    try:
+        await db.initialize()
+    except Exception as exc:
+        message = str(exc)
+        if "CosmosHttpResponseError" in message or "Forbidden" in message or "firewall" in message.lower():
+            print("\n⚠️ CosmosDB access is blocked in this environment (firewall/network restrictions).")
+            print("   Demo skipped gracefully. Configure Cosmos DB firewall/network to run end-to-end.")
+            return
+        print(f"ERROR: Could not connect to CosmosDB: {exc}")
+        return
+
     print("[Connected successfully]")
     
     # Clean up previous demo data
