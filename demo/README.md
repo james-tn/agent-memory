@@ -79,15 +79,15 @@ async with AgentMemory(user_id="user123", openai_client=client, config=config) a
 **Automatic memory management** with Microsoft Agent Framework.
 
 ```python
-from agent_framework import ChatAgent
+from agent_framework import Agent
 from memory import AgentMemory, AgentMemoryConfig
 
-config = AgentMemoryConfig(auto_enrich_context=True, enrichment_mode="llm")
+config = AgentMemoryConfig(auto_enrich_context=True)
 memory = AgentMemory(user_id="user123", openai_client=client, config=config)
 
-# Just pass memory as context_provider - everything is automatic!
-agent = ChatAgent(
-    chat_client=chat_client,
+# Just pass memory as a context provider - everything is automatic.
+agent = Agent(
+    client=chat_client,
     instructions="You are a financial advisor...",
     context_providers=[memory]
 )
@@ -112,8 +112,8 @@ async with memory:
 async def search_memory(query: str) -> str:
     return await memory.search(query, search_interactions=True, search_insights=True)
 
-agent = ChatAgent(
-    chat_client=chat_client,
+agent = Agent(
+    client=chat_client,
     instructions="ALWAYS search memory before prescribing medications.",
     tools=[search_memory],
     context_providers=[memory]  # Still stores turns automatically
@@ -300,5 +300,5 @@ COSMOS_ENDPOINT=https://your-account.documents.azure.com:443/
 | Pattern | Demos | Context Injection | Turn Storage | Memory Search |
 |---------|-------|-------------------|--------------|---------------|
 | **Manual** | 01 | You call `get_context()` | You call `add_turn()` | You call `search()` |
-| **Auto-Context** | 02, 04 | Automatic via `invoking()` | Automatic via `invoked()` | LLM-triggered |
-| **Agent-Driven** | 03 | Minimal (session summary) | Automatic via `invoked()` | Agent calls `search_memory` tool |
+| **Auto-Context** | 02, 04 | Automatic via `before_run()` | Automatic via `after_run()` | Keyword-triggered |
+| **Agent-Driven** | 03 | Minimal (session summary) | Automatic via `after_run()` | Agent calls `search_memory` tool |

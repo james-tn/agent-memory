@@ -108,23 +108,24 @@ async with memory:
 ### Agent Framework Integration
 
 ```python
-from agent_framework import ChatAgent
+from agent_framework import Agent
+from agent_framework.azure import AzureOpenAIChatClient
 from memory import AgentMemory, AgentMemoryConfig
 
 # Enable auto-enrichment for keyword-triggered memory search
 config = AgentMemoryConfig(auto_enrich_context=True)
 memory = AgentMemory(user_id="user123", openai_client=client, config=config)
 
-# Pass memory as context_provider - everything is automatic!
-agent = ChatAgent(
-    chat_client=chat_client,
+# Pass memory as a context provider - everything is automatic.
+agent = Agent(
+    client=AzureOpenAIChatClient(...),
     instructions="You are a helpful assistant...",
     context_providers=[memory]  # ← Automatic memory injection
 )
 
 # Memory automatically:
-# 1. Injects context before each turn (via invoking())
-# 2. Stores conversation after each turn (via invoked())
+# 1. Injects context before each turn (via before_run())
+# 2. Stores conversation after each turn (via after_run())
 async with memory:
     result = await agent.run("What did we discuss last time?")
     # No manual add_turn() needed!
@@ -203,20 +204,25 @@ See [infra/README.md](infra/README.md) for details.
 
 | Demo | Backend | Description |
 |------|---------|-------------|
-| `01_financial_advisor.py` | SQLite | Agent Framework integration with context providers |
-| `02_interactive_streamlit.py` | CosmosDB | Interactive web UI with memory visualization |
+| `demo/01_basic_memory.py` | SQLite | Manual `add_turn()` + `get_context()` |
+| `demo/02_agent_framework.py` | SQLite | Agent Framework integration with context providers |
+| `demo/03_agent_driven.py` | SQLite | Explicit memory search tools |
+| `demo/07_interactive_ui.py` | CosmosDB | Interactive Streamlit UI |
 
 ### Quick Start Demo
 
 ```bash
-# Financial advisor - Agent Framework + SQLite (zero-config)
-uv run python -m demos.01_financial_advisor
+# Basic memory (SQLite, zero-config)
+uv run python demo/01_basic_memory.py
+
+# Agent Framework integration (SQLite)
+uv run python demo/02_agent_framework.py
 
 # Interactive Streamlit UI - requires CosmosDB
-streamlit run demos/02_interactive_streamlit.py
+streamlit run demo/07_interactive_ui.py
 ```
 
-See [demos/README.md](demos/README.md) for details.
+See [demo/README.md](demo/README.md) for details.
 
 ---
 
@@ -240,11 +246,16 @@ memory/
 ├── models.py                # Data models
 └── prompts.py               # LLM prompts
 
-demos/
-├── quickstart/              # Getting started
-│   └── usage.py             # Complete API demo
-└── scenarios/               # Use cases
-    └── financial_advisor.py
+demo/
+├── 01_basic_memory.py
+├── 02_agent_framework.py
+├── 03_agent_driven.py
+├── 04_cosmosdb.py
+├── 05_server_mode.py
+├── 06_insight_curation.py
+├── 07_interactive_ui.py
+├── 08_itemized_insights.py
+└── 09_itemized_insights_cosmos.py
 ```
 
 ---
@@ -258,20 +269,21 @@ class AgentMemory:
     def __init__(
         self,
         user_id: str,
+        *,
         openai_client: AzureOpenAI,
+        config: AgentMemoryConfig | None = None,
         db_type: DatabaseType = DatabaseType.SQLITE,
         db_path: str = "agent_memory.db",           # SQLite
-        cosmos_endpoint: str = None,                 # CosmosDB
-        cosmos_connection_string: str = None,        # CosmosDB (alternative)
-        embedding_model: str = "text-embedding-ada-002",
-        k_turns: int = 5,
-        m_sessions: int = 5,
+        connection_string: str | None = None,        # CosmosDB/other backends
+        cosmos_client = None,
+        session_id: str | None = None,
     )
     
     # Core methods
     async def add_turn(user_message: str, assistant_message: str)
     def get_context() -> str
     async def search(query: str, top_k: int = 5) -> List[SearchResult]
+    async def start_session(session_id: str | None = None)
     async def end_session()  # Triggers reflection
 ```
 
