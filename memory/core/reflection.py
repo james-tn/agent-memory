@@ -12,14 +12,14 @@ Uses the MemoryDatabase interface to work with any backend
 (SQLite, CosmosDB, PostgreSQL).
 """
 
-import json
 from typing import List, Dict, Optional, Any, Type
-from datetime import datetime
+from datetime import datetime, timezone
 import uuid
 from dataclasses import dataclass
 from pydantic import BaseModel, Field
 
 from memory.db.base import ContainerType, MemoryDatabase
+from memory.core.llm_json import call_llm_with_json
 from memory.providers.embedding import EmbeddingProvider
 
 
@@ -120,21 +120,13 @@ class Reflection:
         Returns:
             Parsed Pydantic model instance
         """
-        # Add JSON schema instructions to prompt
-        schema_hint = f"\nRespond with valid JSON matching this schema: {output_model.model_json_schema()}"
-        
-        response = self.chat_client.chat.completions.create(
-            model=self.config.PROCESSING_MODEL,
-            messages=[
-                {"role": "system", "content": system_prompt + schema_hint},
-                {"role": "user", "content": user_prompt}
-            ],
-            response_format={"type": "json_object"}
+        return call_llm_with_json(
+            self.chat_client,
+            self.config.PROCESSING_MODEL,
+            system_prompt,
+            user_prompt,
+            output_model,
         )
-        
-        content = response.choices[0].message.content
-        parsed = json.loads(content)
-        return output_model.model_validate(parsed)
     
     async def reflect_on_session(
         self,
@@ -221,7 +213,7 @@ class Reflection:
                     "category": insight.category,
                     "confidence": insight.confidence,
                     "importance": insight.importance,
-                    "extracted_at": datetime.utcnow().isoformat()
+                    "extracted_at": self._utcnow_iso()
                 })
         
         total_duration = time.time() - start_time
@@ -445,8 +437,8 @@ class Reflection:
             "importance": insight.importance,
             "source_session_id": session_id,
             "is_synthesized": is_synthesized,
-            "created_at": datetime.utcnow().isoformat(),
-            "last_updated": datetime.utcnow().isoformat()
+            "created_at": self._utcnow_iso(),
+            "last_updated": self._utcnow_iso()
         }
         
         result = await self.database.upsert(
@@ -565,46 +557,20 @@ class Reflection:
                 total_insights += 1
         
         new_insights_context = "\n".join(context_parts)
+        from memory.prompts import LONGTERM_PROFILE_CREATE_PROMPT, LONGTERM_PROFILE_UPDATE_PROMPT
         
         # Build prompt based on whether existing profile exists
         if existing_profile:
-            prompt = f"""You are updating an existing long-term user profile with new insights from recent sessions.
-
-User ID: {user_id}
-
-EXISTING USER PROFILE:
-{existing_profile}
-
-NEW SESSION INSIGHTS (to be incorporated):
-{new_insights_context}
-
-Task: Update the user profile by:
-1. Integrating new insights into the existing profile
-2. Identifying evolving patterns and changes over time
-3. Updating or refining existing information with new data
-4. Maintaining the structured, category-based format
-5. Removing outdated or contradicted information
-6. Highlighting any significant changes or new learnings
-
-IMPORTANT: Keep the profile CONCISE and focused. Use brief, direct language.
-"""
+            prompt = LONGTERM_PROFILE_UPDATE_PROMPT.format(
+                user_id=user_id,
+                existing_profile=existing_profile,
+                new_insights_context=new_insights_context,
+            )
         else:
-            prompt = f"""You are creating an initial long-term user profile from session insights.
-
-User ID: {user_id}
-
-SESSION INSIGHTS (grouped by category):
-{new_insights_context}
-
-Task: Create a cohesive narrative profile that:
-1. Synthesizes insights within each category into clear statements
-2. Identifies patterns and trends across sessions
-3. Presents information in a structured, easy-to-read format
-4. Removes redundancies and conflicting information
-5. Organizes by categories for easy reference
-
-IMPORTANT: Keep the profile CONCISE. Use brief, direct language.
-"""
+            prompt = LONGTERM_PROFILE_CREATE_PROMPT.format(
+                user_id=user_id,
+                new_insights_context=new_insights_context,
+            )
         
         try:
             response = self.chat_client.beta.chat.completions.parse(
@@ -648,7 +614,7 @@ IMPORTANT: Keep the profile CONCISE. Use brief, direct language.
             existing_doc["source_insight_ids"] = list(set(
                 existing_doc.get("source_insight_ids", []) + source_insight_ids
             ))
-            existing_doc["updated_at"] = datetime.utcnow().isoformat()
+            existing_doc["updated_at"] = self._utcnow_iso()
             
             result = await self.database.upsert(
                 container=ContainerType.INSIGHTS,
@@ -667,8 +633,8 @@ IMPORTANT: Keep the profile CONCISE. Use brief, direct language.
                 "insight_vector": embedding,
                 "confidence": profile_output.confidence,
                 "source_insight_ids": source_insight_ids,
-                "created_at": datetime.utcnow().isoformat(),
-                "updated_at": datetime.utcnow().isoformat()
+                "created_at": self._utcnow_iso(),
+                "updated_at": self._utcnow_iso()
             }
             
             result = await self.database.upsert(
@@ -690,7 +656,7 @@ IMPORTANT: Keep the profile CONCISE. Use brief, direct language.
                 )
                 if insight_doc:
                     insight_doc["processed"] = True
-                    insight_doc["updated_at"] = datetime.utcnow().isoformat()
+                    insight_doc["updated_at"] = self._utcnow_iso()
                     
                     await self.database.upsert(
                         container=ContainerType.INSIGHTS,
@@ -816,8 +782,8 @@ IMPORTANT: Keep the profile CONCISE. Use brief, direct language.
                 category=insight.category,
                 confidence=insight.confidence,
                 importance=insight.importance,
-                date_added=datetime.utcnow(),
-                last_accessed=datetime.utcnow(),
+                date_added=datetime.now(timezone.utc),
+                last_accessed=datetime.now(timezone.utc),
                 access_count=0,
                 source_session_ids=[session_id],
             )
@@ -891,7 +857,7 @@ IMPORTANT: Keep the profile CONCISE. Use brief, direct language.
                 )
                 if doc and doc.get("insight_type") == "long_term_item":
                     doc["access_count"] = doc.get("access_count", 0) + 1
-                    doc["last_accessed"] = datetime.utcnow().isoformat()
+                    doc["last_accessed"] = self._utcnow_iso()
                     
                     await self.database.upsert(
                         container=ContainerType.INSIGHTS,
@@ -971,7 +937,5 @@ IMPORTANT: Keep the profile CONCISE. Use brief, direct language.
                 reverse=True
             )[:5]
         }
-
-
-# Backward compatibility alias
-ReflectionProcess = Reflection
+    def _utcnow_iso(self) -> str:
+        return datetime.now(timezone.utc).isoformat()

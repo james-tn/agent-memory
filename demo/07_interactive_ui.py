@@ -18,7 +18,7 @@ Prerequisites:
    uv run uvicorn server.main:app --port 8000
 
 2. Run this demo:
-   streamlit run demo/02_interactive_streamlit.py
+   streamlit run demo/07_interactive_ui.py
 
 Requirements:
 - Memory service running on localhost:8000
@@ -27,6 +27,7 @@ Requirements:
 """
 
 import asyncio
+import html
 import os
 import re
 import sys
@@ -273,9 +274,9 @@ class SyncMemoryClient:
     
     def get_context(self):
         """Get current context."""
-        response = httpx.post(
+        response = httpx.get(
             f"{self.service_url}/sessions/context",
-            json={"user_id": self.user_id, "session_id": self.session_id},
+            params={"user_id": self.user_id, "session_id": self.session_id},
             timeout=self.timeout
         )
         response.raise_for_status()
@@ -580,24 +581,27 @@ def render_chat():
     
     # Chat messages
     for msg in st.session_state.conversation_history:
+        safe_timestamp = html.escape(msg["timestamp"])
+        safe_content = html.escape(msg["content"]).replace("\n", "<br>")
         if msg["role"] == "user":
             st.markdown(f"""
             <div class="chat-user">
                 <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
                     <strong>👤 User</strong>
-                    <span style="color: #666; font-size: 0.85em;">{msg["timestamp"]}</span>
+                    <span style="color: #666; font-size: 0.85em;">{safe_timestamp}</span>
                 </div>
-                <div>{msg["content"]}</div>
+                <div>{safe_content}</div>
             </div>
             """, unsafe_allow_html=True)
         else:
+            safe_agent_type = html.escape(agent_type)
             st.markdown(f"""
             <div class="chat-assistant">
                 <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
-                    <strong>{agent_icon} {agent_type}</strong>
-                    <span style="color: #666; font-size: 0.85em;">{msg["timestamp"]}</span>
+                    <strong>{agent_icon} {safe_agent_type}</strong>
+                    <span style="color: #666; font-size: 0.85em;">{safe_timestamp}</span>
                 </div>
-                <div>{msg["content"]}</div>
+                <div>{safe_content}</div>
             </div>
             """, unsafe_allow_html=True)
 

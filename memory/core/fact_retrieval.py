@@ -13,6 +13,7 @@ The agent has three search tools:
 3. search_insights - Search long-term insights
 """
 
+import os
 from typing import List, Dict, Optional, Any, Annotated
 from dataclasses import dataclass
 
@@ -128,6 +129,8 @@ class FactRetrieval:
         self.agent = Agent(
             client=AzureOpenAIChatClient(
                 credential=DefaultAzureCredential(),
+                endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
+                api_version=os.getenv("AZURE_OPENAI_API_VERSION"),
                 deployment_name=self.config.REASONING_MODEL
             ),
             instructions="""You are a memory retrieval assistant. Your job is to search through past conversations, 
@@ -310,14 +313,11 @@ After searching, synthesize the findings into a clear, concise response.""",
         formatted = ["Found relevant user insights:\n"]
         for idx, result in enumerate(results, 1):
             confidence = result.get('confidence', 0)
+            confidence_text = f"{confidence:.2f}" if isinstance(confidence, (int, float)) else "N/A"
             formatted.append(
                 f"{idx}. {result.get('insight_text', 'N/A')}\n"
                 f"   Category: {result.get('category', 'N/A')}\n"
-                f"   Confidence: {confidence:.2f if isinstance(confidence, (int, float)) else 'N/A'}\n"
+                f"   Confidence: {confidence_text}\n"
                 f"   Similarity: {result.score:.4f}\n"
             )
         return "\n".join(formatted)
-
-
-# Backward compatibility alias
-ContextualFactRetrieval = FactRetrieval

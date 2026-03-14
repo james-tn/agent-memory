@@ -2,7 +2,7 @@
 Pydantic models for Agent Memory Service.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, List, Literal
 from pydantic import BaseModel, Field
 
@@ -87,7 +87,7 @@ class ConversationTurn(BaseModel):
     """
     role: Literal["user", "assistant"]
     content: str
-    timestamp: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
+    timestamp: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
 
 class SessionInitContext(BaseModel):

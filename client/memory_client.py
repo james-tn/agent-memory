@@ -13,9 +13,9 @@ The client manages sessions and memory operations via REST API:
 """
 
 import httpx
+import asyncio
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass
-import uuid
 import logging
 
 logger = logging.getLogger(__name__)
@@ -80,7 +80,8 @@ class MemoryServiceClient:
         service_url: str,
         user_id: str,
         session_id: Optional[str] = None,
-        timeout: float = 60.0
+        timeout: float = 60.0,
+        max_retries: int = 2,
     ):
         """
         Initialize memory service client.
@@ -95,20 +96,29 @@ class MemoryServiceClient:
         self.user_id = user_id
         self.session_id = session_id
         self.timeout = timeout
+        self.max_retries = max_retries
         self._client: Optional[httpx.AsyncClient] = None
         
         logger.info(f"MemoryServiceClient initialized: user={user_id}")
     
     @property
     def client(self) -> httpx.AsyncClient:
-        """Get or create HTTP client."""
+        """Get the owned HTTP client."""
+        if self._client is None:
+            raise RuntimeError(
+                "MemoryServiceClient is not open. Use 'async with' or call await open() first."
+            )
+        return self._client
+
+    async def open(self) -> "MemoryServiceClient":
+        """Open the owned HTTP client explicitly."""
         if self._client is None:
             self._client = httpx.AsyncClient(timeout=self.timeout)
-        return self._client
+        return self
     
     async def __aenter__(self):
         """Context manager entry."""
-        return self
+        return await self.open()
     
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Context manager exit - close HTTP client."""
@@ -119,6 +129,35 @@ class MemoryServiceClient:
         if self._client is not None:
             await self._client.aclose()
             self._client = None
+
+    async def _request(self, method: str, path: str, **kwargs) -> httpx.Response:
+        """Perform an HTTP request with bounded retries and per-call timeout."""
+        timeout = kwargs.pop("timeout", self.timeout)
+        last_error: Exception | None = None
+
+        for attempt in range(self.max_retries + 1):
+            try:
+                response = await self.client.request(
+                    method,
+                    f"{self.service_url}{path}",
+                    timeout=timeout,
+                    **kwargs,
+                )
+                if response.status_code >= 500 and attempt < self.max_retries:
+                    await asyncio.sleep(0.2 * (attempt + 1))
+                    continue
+                response.raise_for_status()
+                return response
+            except (httpx.TimeoutException, httpx.TransportError, httpx.HTTPStatusError) as exc:
+                last_error = exc
+                if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code < 500:
+                    raise
+                if attempt >= self.max_retries:
+                    raise
+                await asyncio.sleep(0.2 * (attempt + 1))
+
+        assert last_error is not None
+        raise last_error
     
     # ========================================================================
     # Health Check
@@ -131,8 +170,7 @@ class MemoryServiceClient:
         Returns:
             Health status with active_sessions and uptime_seconds
         """
-        response = await self.client.get(f"{self.service_url}/health")
-        response.raise_for_status()
+        response = await self._request("GET", "/health")
         return response.json()
     
     # ========================================================================
@@ -155,11 +193,7 @@ class MemoryServiceClient:
             "restore": restore
         }
         
-        response = await self.client.post(
-            f"{self.service_url}/sessions/start",
-            json=payload
-        )
-        response.raise_for_status()
+        response = await self._request("POST", "/sessions/start", json=payload)
         
         data = response.json()
         self.session_id = data["session_id"]
@@ -189,11 +223,7 @@ class MemoryServiceClient:
             "session_id": self.session_id
         }
         
-        response = await self.client.post(
-            f"{self.service_url}/sessions/context",
-            json=payload
-        )
-        response.raise_for_status()
+        response = await self._request("GET", "/sessions/context", params=payload)
         
         data = response.json()
         return SessionContext(
@@ -228,11 +258,7 @@ class MemoryServiceClient:
             "assistant_message": assistant_message
         }
         
-        response = await self.client.post(
-            f"{self.service_url}/sessions/turn",
-            json=payload
-        )
-        response.raise_for_status()
+        response = await self._request("POST", "/sessions/turn", json=payload)
         
         data = response.json()
         logger.debug(f"Turn stored: session={self.session_id}")
@@ -264,11 +290,7 @@ class MemoryServiceClient:
             "trigger_reflection": trigger_reflection
         }
         
-        response = await self.client.post(
-            f"{self.service_url}/sessions/end",
-            json=payload
-        )
-        response.raise_for_status()
+        response = await self._request("POST", "/sessions/end", json=payload)
         
         data = response.json()
         logger.info(f"Session ended: {self.session_id}")
@@ -317,11 +339,7 @@ class MemoryServiceClient:
             "search_summaries": search_summaries
         }
         
-        response = await self.client.post(
-            f"{self.service_url}/search",
-            json=payload
-        )
-        response.raise_for_status()
+        response = await self._request("POST", "/search", json=payload)
         
         data = response.json()
         return data.get("results", "")
@@ -340,11 +358,11 @@ class MemoryServiceClient:
         Returns:
             List of insight dictionaries
         """
-        response = await self.client.get(
-            f"{self.service_url}/users/{self.user_id}/insights",
-            params={"limit": limit}
+        response = await self._request(
+            "GET",
+            f"/users/{self.user_id}/insights",
+            params={"limit": limit},
         )
-        response.raise_for_status()
         
         data = response.json()
         return data.get("insights", [])
@@ -359,11 +377,11 @@ class MemoryServiceClient:
         Returns:
             List of session dictionaries
         """
-        response = await self.client.get(
-            f"{self.service_url}/users/{self.user_id}/sessions",
-            params={"limit": limit}
+        response = await self._request(
+            "GET",
+            f"/users/{self.user_id}/sessions",
+            params={"limit": limit},
         )
-        response.raise_for_status()
         
         data = response.json()
         return data.get("sessions", [])

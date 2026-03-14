@@ -5,7 +5,7 @@ Loads settings from environment variables with sensible defaults.
 Uses Pydantic for validation and type safety.
 """
 
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Optional
 
 
@@ -25,19 +25,26 @@ class ServerConfig(BaseSettings):
     max_sessions: int = 1000
     session_ttl_minutes: int = 30
     eviction_interval_seconds: int = 60  # How often to check for stale sessions
+
+    # Optional auth gate for production deployments
+    auth_enabled: bool = False
+    auth_api_key: Optional[str] = None
+    auth_header_name: str = "x-api-key"
     
     # Azure OpenAI Settings (use existing .env variable names)
-    azure_openai_endpoint_v1: str
-    azure_openai_endpoint: str
+    azure_openai_endpoint_v1: Optional[str] = None
+    azure_openai_endpoint: Optional[str] = None
 
-    azure_openai_api_key: str
-    azure_openai_reasoning_model: str  # Main deployment for chat
-    azure_openai_api_version: str 
-    azure_openai_processing_model: str 
-    azure_openai_emb_deployment: str 
+    azure_openai_api_key: Optional[str] = None
+    azure_openai_reasoning_model: Optional[str] = None  # Main deployment for chat
+    azure_openai_api_version: Optional[str] = None
+    azure_openai_processing_model: Optional[str] = None
+    azure_openai_emb_deployment: Optional[str] = None
 
     # Azure Cosmos DB Settings (use existing .env variable names)
-    COSMOS_ENDPOINT: str
+    COSMOS_ENDPOINT: Optional[str] = None
+    cosmos_connection_string: Optional[str] = None
+    azure_cosmos_connection_string: Optional[str] = None
     cosmos_key: Optional[str] = None  # If not provided, will use AAD authentication
     cosmos_db_name: str = "agent_memory_db"
     cosmos_interactions_container: str = "interactions"
@@ -50,7 +57,8 @@ class ServerConfig(BaseSettings):
     aad_tenant_id: Optional[str] = None
     
     # Azure OpenAI Embeddings (use existing .env variable names)
-    azure_openai_emb_deployment: str
+    agent_memory_db_type: str = "sqlite"
+    agent_memory_db_path: str = "agent_memory_server.db"
     
     # Memory Service Settings
     K_TURN_BUFFER: int = 5
@@ -62,11 +70,12 @@ class ServerConfig(BaseSettings):
     # Logging
     log_level: str = "INFO"
     
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        case_sensitive = False
-        extra = "ignore"  # Ignore extra fields from .env
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore",
+    )
 
 
 # Singleton config instance

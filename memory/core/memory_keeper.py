@@ -12,15 +12,16 @@ The MemoryKeeper handles:
 """
 
 import asyncio
-import json
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Type, TYPE_CHECKING
 
 from pydantic import BaseModel, Field
 
 from memory.db.base import ContainerType, MemoryDatabase
+from memory.core.llm_json import call_llm_with_json
+from memory.models import SessionInitContext
 from memory.providers.embedding import EmbeddingProvider
 
 if TYPE_CHECKING:
@@ -62,14 +63,7 @@ class ConversationTurn:
     """Represents a single conversation turn."""
     role: str  # "user" or "assistant"
     content: str
-    timestamp: str = field(default_factory=lambda: datetime.utcnow().isoformat())
-
-
-@dataclass
-class SessionInitContext:
-    """Context retrieved at session initialization."""
-    longterm_insight: Optional[str] = None
-    recent_summaries: List[Dict[str, Any]] = field(default_factory=list)
+    timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
 
 @dataclass
@@ -129,7 +123,8 @@ class MemoryKeeper:
         self.cumulative_summary: str = ""
         self.session_init_context: Optional[SessionInitContext] = None
         self.session_started: bool = False
-        
+        self._closing = False
+
         # Track background tasks for cleanup
         self._pending_tasks: List[asyncio.Task] = []
     
@@ -152,21 +147,13 @@ class MemoryKeeper:
         Returns:
             Parsed Pydantic model instance
         """
-        # Add JSON schema instructions to prompt
-        schema_hint = f"\nRespond with valid JSON matching this schema: {output_model.model_json_schema()}"
-        
-        response = self.chat_client.chat.completions.create(
-            model=self.config.PROCESSING_MODEL,
-            messages=[
-                {"role": "system", "content": system_prompt + schema_hint},
-                {"role": "user", "content": user_prompt}
-            ],
-            response_format={"type": "json_object"}
+        return call_llm_with_json(
+            self.chat_client,
+            self.config.PROCESSING_MODEL,
+            system_prompt,
+            user_prompt,
+            output_model,
         )
-        
-        content = response.choices[0].message.content
-        parsed = json.loads(content)
-        return output_model.model_validate(parsed)
     
     async def start_session(
         self,
@@ -186,6 +173,7 @@ class MemoryKeeper:
             SessionInitContext with insights and recent summaries
         """
         print(f"[MemoryKeeper] Initializing session context for user: {self.user_id}")
+        self._closing = False
         
         # Fetch long-term insight if reflection is available
         longterm_insight = None
@@ -242,7 +230,7 @@ class MemoryKeeper:
         turn = ConversationTurn(
             role=role,
             content=content,
-            timestamp=datetime.utcnow().isoformat()
+            timestamp=datetime.now(timezone.utc).isoformat()
         )
         
         self.turn_buffer.append(turn)
@@ -281,8 +269,7 @@ class MemoryKeeper:
             print(f"  ⚠ Warning: LLM returned empty summary")
         
         # Update session document with new cumulative summary (for restoration)
-        task1 = asyncio.create_task(self._update_session_summary_async())
-        self._pending_tasks.append(task1)
+        self._track_pending_task(asyncio.create_task(self._update_session_summary_async()))
         
         # Prune buffer immediately (don't wait for database)
         self.turn_buffer = self.turn_buffer[self.config.K_TURN_BUFFER:]
@@ -290,8 +277,8 @@ class MemoryKeeper:
         print(f"  ✓ Pruned buffer. Remaining turns: {len(self.turn_buffer)}")
         
         # Launch async task to process and store interaction (non-blocking)
-        task2 = asyncio.create_task(self._process_interaction_async(turns_to_prune))
-        self._pending_tasks.append(task2)
+        if not self._closing:
+            self._track_pending_task(asyncio.create_task(self._process_interaction_async(turns_to_prune)))
         
         print(f"  🔄 Interaction processing started in background\n")
         
@@ -327,7 +314,7 @@ class MemoryKeeper:
             "id": str(uuid.uuid4()),
             "user_id": self.user_id,
             "session_id": self.session_id,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "content": conversation_text,
             "content_vector": content_embedding,
             "summary": metadata["summary"],
@@ -378,7 +365,7 @@ class MemoryKeeper:
             "id": str(uuid.uuid4()),
             "user_id": self.user_id,
             "session_id": self.session_id,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "content": conversation_text,
             "content_vector": content_embedding,
             "summary": metadata["summary"],
@@ -415,16 +402,39 @@ class MemoryKeeper:
         Should be called before closing the database connection
         to ensure all writes are complete.
         """
+        self._closing = True
         if self._pending_tasks:
             print(f"  ⏳ Waiting for {len(self._pending_tasks)} pending tasks...")
             # Filter out completed tasks
             pending = [t for t in self._pending_tasks if not t.done()]
             if pending:
-                await asyncio.gather(*pending, return_exceptions=True)
+                results = await asyncio.gather(*pending, return_exceptions=True)
+                for result in results:
+                    if isinstance(result, Exception):
+                        print(f"  ⚠ Warning: Background task failed: {result}")
             self._pending_tasks.clear()
             print(f"  ✓ All pending tasks completed")
+
+    def _track_pending_task(self, task: asyncio.Task) -> None:
+        """Track background tasks and surface failures."""
+        def _on_done(done_task: asyncio.Task) -> None:
+            try:
+                exc = done_task.exception()
+            except asyncio.CancelledError:
+                return
+            if exc is not None:
+                print(f"  ⚠ Warning: Background task raised an exception: {exc}")
+
+        task.add_done_callback(_on_done)
+        self._pending_tasks.append(task)
     
-    def get_current_context(self) -> str:
+    def get_current_context(
+        self,
+        *,
+        include_longterm_insights: bool = True,
+        include_recent_sessions: bool = True,
+        include_cumulative_summary: bool = True,
+    ) -> str:
         """
         Build formatted context for the agent.
         
@@ -440,11 +450,14 @@ class MemoryKeeper:
         
         # Add session initialization block
         if self.session_init_context:
-            init_block = self._format_session_init_block()
+            init_block = self._format_session_init_block(
+                include_longterm_insights=include_longterm_insights,
+                include_recent_sessions=include_recent_sessions,
+            )
             context_parts.append(init_block)
         
         # Add cumulative summary
-        if self.cumulative_summary:
+        if include_cumulative_summary and self.cumulative_summary:
             context_parts.append("### Conversation Summary")
             context_parts.append(self.cumulative_summary)
             context_parts.append("")
@@ -458,7 +471,12 @@ class MemoryKeeper:
         
         return "\n".join(context_parts)
     
-    def _format_session_init_block(self) -> str:
+    def _format_session_init_block(
+        self,
+        *,
+        include_longterm_insights: bool = True,
+        include_recent_sessions: bool = True,
+    ) -> str:
         """Format the session initialization block."""
         if not self.session_init_context:
             return ""
@@ -466,13 +484,13 @@ class MemoryKeeper:
         parts = ["<session_initialization>"]
         
         # Add long-term insight
-        if self.session_init_context.longterm_insight:
+        if include_longterm_insights and self.session_init_context.longterm_insight:
             parts.append("### Key Insights")
             parts.append(self.session_init_context.longterm_insight)
             parts.append("")
         
         # Add recent session summaries
-        if self.session_init_context.recent_summaries:
+        if include_recent_sessions and self.session_init_context.recent_summaries:
             parts.append("### Recent Session Summaries")
             for session in self.session_init_context.recent_summaries:
                 end_time = session.get("end_time", "")
@@ -574,7 +592,7 @@ class MemoryKeeper:
                 document_id=self.session_id,
                 partition_key=self.user_id
             )
-            start_time = existing.get("start_time") if existing else datetime.utcnow().isoformat()
+            start_time = existing.get("start_time") if existing else datetime.now(timezone.utc).isoformat()
             
             # Update session document in database
             session_update = {
@@ -583,7 +601,7 @@ class MemoryKeeper:
                 "start_time": start_time,  # Required NOT NULL field
                 "cumulative_summary": self.cumulative_summary,
                 "turn_count": len(self.turn_buffer),
-                "updated_at": datetime.utcnow().isoformat()  # Use updated_at, not last_updated
+                "updated_at": datetime.now(timezone.utc).isoformat()  # Use updated_at, not last_updated
             }
             
             await self.database.upsert(
@@ -622,7 +640,7 @@ class MemoryKeeper:
             session_update = {
                 "id": self.session_id,
                 "user_id": self.user_id,
-                "last_updated": datetime.utcnow().isoformat()
+                "last_updated": datetime.now(timezone.utc).isoformat()
             }
             
             if cumulative_summary is not None:

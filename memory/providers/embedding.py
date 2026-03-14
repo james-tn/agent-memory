@@ -5,6 +5,7 @@ This module provides a single source for embedding generation,
 used across all database backends.
 """
 
+import time
 from typing import List, Protocol, runtime_checkable
 
 
@@ -51,6 +52,7 @@ class OpenAIEmbeddingProvider:
     
     # Models that support the dimensions parameter
     MODELS_WITH_DIMENSIONS = ["text-embedding-3-large", "text-embedding-3-small"]
+    MAX_BATCH_SIZE = 64
     
     def __init__(
         self,
@@ -71,6 +73,27 @@ class OpenAIEmbeddingProvider:
         self.dimensions = dimensions
         # Only use dimensions parameter for models that support it
         self._supports_dimensions = model in self.MODELS_WITH_DIMENSIONS
+        self._retry_attempts = 3
+
+    def _create_embeddings(self, payload):
+        kwargs = {
+            "input": payload,
+            "model": self.model,
+        }
+        if self._supports_dimensions:
+            kwargs["dimensions"] = self.dimensions
+
+        last_error = None
+        for attempt in range(self._retry_attempts):
+            try:
+                return self.client.embeddings.create(**kwargs)
+            except Exception as exc:  # pragma: no cover - network/provider specific
+                last_error = exc
+                if attempt >= self._retry_attempts - 1:
+                    raise
+                time.sleep(0.2 * (attempt + 1))
+
+        raise last_error  # pragma: no cover
     
     def get_embedding(self, text: str) -> List[float]:
         """
@@ -82,14 +105,10 @@ class OpenAIEmbeddingProvider:
         Returns:
             List of floats representing the embedding vector
         """
-        kwargs = {
-            "input": text,
-            "model": self.model,
-        }
-        if self._supports_dimensions:
-            kwargs["dimensions"] = self.dimensions
-        
-        response = self.client.embeddings.create(**kwargs)
+        if not text or not text.strip():
+            raise ValueError("Text cannot be empty")
+
+        response = self._create_embeddings(text)
         return response.data[0].embedding
     
     def get_embeddings_batch(self, texts: List[str]) -> List[List[float]]:
@@ -104,13 +123,14 @@ class OpenAIEmbeddingProvider:
         """
         if not texts:
             return []
-        
-        kwargs = {
-            "input": texts,
-            "model": self.model,
-        }
-        if self._supports_dimensions:
-            kwargs["dimensions"] = self.dimensions
-        
-        response = self.client.embeddings.create(**kwargs)
-        return [item.embedding for item in response.data]
+
+        valid_texts = [text for text in texts if text and text.strip()]
+        if not valid_texts:
+            return []
+
+        embeddings: List[List[float]] = []
+        for index in range(0, len(valid_texts), self.MAX_BATCH_SIZE):
+            batch = valid_texts[index:index + self.MAX_BATCH_SIZE]
+            response = self._create_embeddings(batch)
+            embeddings.extend(item.embedding for item in response.data)
+        return embeddings

@@ -1,11 +1,10 @@
-import json
 import logging
 from typing import Any, Dict, List
 
 from agent_framework import Agent as AFAgent, AgentSession, MCPStreamableHTTPTool
 from agent_framework.azure import AzureOpenAIChatClient
 
-from agents.base_agent import BaseAgent
+from agent.base_agent import BaseAgent
 
 logger = logging.getLogger(__name__)
 
@@ -53,10 +52,10 @@ class Agent(BaseAgent):
             "You are a helpful assistant. You can use multiple tools to find information and answer questions. "
             "Review the tools available to you and use them as needed. You can also ask clarifying questions if "
             "the user is not clear. If customer ask any operations that there's no tool to support, said that you cannot do it. "
-            "Never hallunicate any operation that you do not actually do."
+            "Never hallucinate any operation that you do not actually do."
         )
 
-        tools = mcp_tools[0] if mcp_tools else None
+        tools = mcp_tools if mcp_tools else None
 
         self._agent = AFAgent(
             name="ai_assistant",
@@ -70,8 +69,6 @@ class Agent(BaseAgent):
         except Exception:
             self._agent = None
             raise
-
-        await self._log_mcp_tool_details()
 
         if self.state and isinstance(self.state, dict):
             try:
@@ -104,31 +101,6 @@ class Agent(BaseAgent):
 
         return [tool]
 
-    async def _log_mcp_tool_details(self) -> None:
-        if not self._agent:
-            return
-
-        mcp_tools = getattr(self._agent, "_local_mcp_tools", None)
-        if not mcp_tools:
-            logger.debug("No MCP tools registered on the agent; skipping tool inspection.")
-            return
-
-        mcp_tool = mcp_tools[0]
-        session = getattr(mcp_tool, "session", None)
-        if session is None:
-            logger.debug("MCP tool session is not available; cannot list tools for debugging.")
-            return
-
-        try:
-            tool_list = await session.list_tools()
-        except Exception as exc:
-            logger.exception("Failed to fetch MCP tool metadata: %s", exc)
-            return
-
-        if not tool_list or not getattr(tool_list, "tools", None):
-            logger.debug("No tools returned from MCP server during inspection.")
-            return
-
     async def chat_async(self, prompt: str) -> str:
         await self._setup_single_agent()
 
@@ -157,6 +129,18 @@ class Agent(BaseAgent):
         self._setstate(new_state)
 
         return assistant_response
+
+    async def close(self) -> None:
+        """Close agent resources and persist session state."""
+        if self._session is not None:
+            self._setstate(self._session.to_dict())
+
+        if self._agent is not None:
+            await self._agent.__aexit__(None, None, None)
+
+        self._agent = None
+        self._session = None
+        self._initialized = False
 
     async def _chat_async_streaming(self, prompt: str) -> str:
         """Handle chat with streaming support via WebSocket."""

@@ -16,7 +16,7 @@ Note: Does not support hybrid search - falls back to vector-only search.
 import json
 import os
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -95,6 +95,56 @@ SCHEMAS = {
         CREATE INDEX IF NOT EXISTS idx_summaries_status ON session_summaries(status);
     """,
 }
+
+ALLOWED_FILTER_COLUMNS = {
+    ContainerType.INTERACTIONS: {
+        "id",
+        "user_id",
+        "session_id",
+        "timestamp",
+        "content",
+        "summary",
+        "created_at",
+        "updated_at",
+    },
+    ContainerType.INSIGHTS: {
+        "id",
+        "user_id",
+        "insight_type",
+        "insight_text",
+        "confidence",
+        "importance",
+        "category",
+        "reflection_flag",
+        "processed",
+        "date_added",
+        "last_accessed",
+        "access_count",
+        "created_at",
+        "updated_at",
+    },
+    ContainerType.SESSION_SUMMARIES: {
+        "id",
+        "user_id",
+        "start_time",
+        "end_time",
+        "summary",
+        "status",
+        "reflection_status",
+        "cumulative_summary",
+        "turn_count",
+        "created_at",
+        "updated_at",
+    },
+}
+
+ALLOWED_ORDER_COLUMNS = {
+    container: set(columns) for container, columns in ALLOWED_FILTER_COLUMNS.items()
+}
+
+
+def _utcnow_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 def _serialize_vector(vector: List[float]) -> bytes:
@@ -277,8 +327,14 @@ class SQLiteDatabase(MemoryDatabase):
         result = dict(row)
         
         # Parse JSON fields
-        json_fields = ["metadata", "session_ids", "key_topics", 
-                       "extracted_insights", "source_insight_ids"]
+        json_fields = [
+            "metadata",
+            "session_ids",
+            "key_topics",
+            "extracted_insights",
+            "source_insight_ids",
+            "source_session_ids",
+        ]
         for field in json_fields:
             if field in result and result[field]:
                 try:
@@ -296,6 +352,25 @@ class SQLiteDatabase(MemoryDatabase):
                 del result[key]
         
         return result
+
+    def _validate_filter_keys(self, container: ContainerType, filters: Optional[Dict[str, Any]]) -> None:
+        """Validate filter keys against an allowlist."""
+        if not filters:
+            return
+        allowed = ALLOWED_FILTER_COLUMNS[container]
+        invalid = sorted(set(filters) - allowed)
+        if invalid:
+            raise ValueError(f"Invalid filter keys for {container.value}: {', '.join(invalid)}")
+
+    def _validate_order_by(self, container: ContainerType, order_by: Optional[str]) -> Optional[str]:
+        """Validate order-by column names against an allowlist."""
+        if not order_by:
+            return None
+        descending = order_by.startswith("-")
+        field = order_by[1:] if descending else order_by
+        if field not in ALLOWED_ORDER_COLUMNS[container]:
+            raise ValueError(f"Invalid order_by field for {container.value}: {field}")
+        return f"-{field}" if descending else field
     
     async def upsert(
         self,
@@ -311,7 +386,7 @@ class SQLiteDatabase(MemoryDatabase):
         doc = document.copy()
         
         # Set timestamps
-        now = datetime.utcnow().isoformat()
+        now = _utcnow_iso()
         doc["updated_at"] = now
         if "created_at" not in doc:
             doc["created_at"] = now
@@ -346,19 +421,21 @@ class SQLiteDatabase(MemoryDatabase):
             ON CONFLICT(id) DO UPDATE SET {', '.join(updates)}
         """
         
-        self._conn.execute(query, [doc[col] for col in columns])
-        self._conn.commit()
-        
-        # Update vector index if available
-        if self._vec_available:
-            await self._update_vector_index(container, doc)
+        with self._conn:
+            self._conn.execute(query, [doc[col] for col in columns])
+
+            # Update vector index in the same transaction
+            if self._vec_available:
+                await self._update_vector_index(container, doc, commit=False)
         
         return document
     
     async def _update_vector_index(
         self,
         container: ContainerType,
-        doc: Dict[str, Any]
+        doc: Dict[str, Any],
+        *,
+        commit: bool = True,
     ) -> None:
         """Update vector indexes for a document."""
         doc_id = doc["id"]
@@ -397,7 +474,8 @@ class SQLiteDatabase(MemoryDatabase):
                     VALUES (?, ?)
                 """, (doc_id, doc["summary_vector"]))
         
-        self._conn.commit()
+        if commit:
+            self._conn.commit()
     
     async def batch_upsert(
         self,
@@ -407,9 +485,49 @@ class SQLiteDatabase(MemoryDatabase):
     ) -> List[Dict[str, Any]]:
         """Insert or update multiple documents."""
         results = []
-        for doc in documents:
-            result = await self.upsert(container, doc, partition_key)
-            results.append(result)
+        with self._conn:
+            for document in documents:
+                if "id" not in document:
+                    raise ValueError("Document must have an 'id' field")
+
+                doc = document.copy()
+                now = _utcnow_iso()
+                doc["updated_at"] = now
+                if "created_at" not in doc:
+                    doc["created_at"] = now
+
+                json_fields = [
+                    "metadata",
+                    "session_ids",
+                    "key_topics",
+                    "extracted_insights",
+                    "source_insight_ids",
+                    "source_session_ids",
+                ]
+                for field in json_fields:
+                    if field in doc and doc[field] is not None and isinstance(doc[field], (list, dict)):
+                        doc[field] = json.dumps(doc[field])
+
+                vector_fields = ["content_vector", "summary_vector", "insight_vector"]
+                for field in vector_fields:
+                    if field in doc and doc[field] is not None and isinstance(doc[field], list):
+                        doc[field] = _serialize_vector(doc[field])
+
+                if "processed" in doc:
+                    doc["processed"] = 1 if doc["processed"] else 0
+
+                columns = list(doc.keys())
+                placeholders = ["?" for _ in columns]
+                updates = [f"{col} = excluded.{col}" for col in columns if col != "id"]
+                query = f"""
+                    INSERT INTO {self._get_table_name(container)} ({', '.join(columns)})
+                    VALUES ({', '.join(placeholders)})
+                    ON CONFLICT(id) DO UPDATE SET {', '.join(updates)}
+                """
+                self._conn.execute(query, [doc[col] for col in columns])
+                if self._vec_available:
+                    await self._update_vector_index(container, doc, commit=False)
+                results.append(document)
         return results
     
     async def get_by_id(
@@ -437,22 +555,24 @@ class SQLiteDatabase(MemoryDatabase):
     ) -> bool:
         """Delete document by ID."""
         table = self._get_table_name(container)
-        cursor = self._conn.execute(
-            f"DELETE FROM {table} WHERE id = ?",
-            (document_id,)
-        )
-        self._conn.commit()
-        
-        # Also delete from vector indexes
-        if self._vec_available:
-            await self._delete_from_vector_index(container, document_id)
+        with self._conn:
+            cursor = self._conn.execute(
+                f"DELETE FROM {table} WHERE id = ?",
+                (document_id,)
+            )
+
+            # Also delete from vector indexes
+            if self._vec_available:
+                await self._delete_from_vector_index(container, document_id, commit=False)
         
         return cursor.rowcount > 0
     
     async def _delete_from_vector_index(
         self,
         container: ContainerType,
-        document_id: str
+        document_id: str,
+        *,
+        commit: bool = True,
     ) -> None:
         """Delete from vector indexes."""
         if container == ContainerType.INTERACTIONS:
@@ -474,7 +594,8 @@ class SQLiteDatabase(MemoryDatabase):
                 "DELETE FROM vec_summaries WHERE id = ?",
                 (document_id,)
             )
-        self._conn.commit()
+        if commit:
+            self._conn.commit()
     
     async def query(
         self,
@@ -485,6 +606,8 @@ class SQLiteDatabase(MemoryDatabase):
     ) -> List[Dict[str, Any]]:
         """Query documents with filters."""
         table = self._get_table_name(container)
+        self._validate_filter_keys(container, filters)
+        order_by = self._validate_order_by(container, order_by)
         
         # Build WHERE clause
         conditions = []
@@ -550,6 +673,7 @@ class SQLiteDatabase(MemoryDatabase):
         table = self._get_table_name(container)
         
         # Determine which vector index to use
+        self._validate_filter_keys(container, filters)
         if container == ContainerType.INTERACTIONS:
             if vector_field == "summary_vector":
                 vec_table = "vec_interactions_summary"
@@ -568,7 +692,7 @@ class SQLiteDatabase(MemoryDatabase):
         # Build query with KNN search
         # sqlite-vec uses: SELECT ... FROM vec_table WHERE ... ORDER BY distance
         filter_clause = ""
-        params = [query_blob, top_k]
+        params: List[Any] = []
         
         if filters:
             filter_conditions = []
@@ -577,13 +701,14 @@ class SQLiteDatabase(MemoryDatabase):
                 params.append(value)
             if filter_conditions:
                 filter_clause = "WHERE " + " AND ".join(filter_conditions)
+        params.extend([query_blob, top_k])
         
         query = f"""
             SELECT t.*, v.distance
             FROM {vec_table} v
             JOIN {table} t ON v.id = t.id
             {filter_clause}
-            WHERE v.{vector_field} MATCH ?
+            {"AND" if filter_clause else "WHERE"} v.{vector_field} MATCH ?
             ORDER BY v.distance
             LIMIT ?
         """
@@ -624,6 +749,7 @@ class SQLiteDatabase(MemoryDatabase):
         import math
         
         table = self._get_table_name(container)
+        self._validate_filter_keys(container, filters)
         
         # Build filter clause
         filter_clause = ""

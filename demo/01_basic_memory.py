@@ -4,7 +4,7 @@ Basic Memory Demo - Simplest Usage
 
 The simplest way to use AgentMemory - no Agent Framework required.
 Demonstrates:
-- Manual add_turn() and get_context()
+- Manual add_turn() and await get_context()
 - Automatic buffer management for long conversations
 - Semantic search across memory tiers
 - Session summaries and insight extraction
@@ -45,7 +45,7 @@ DB_PATH = str(BASE_DIR / "demo_basic.db")
 async def main():
     print("=" * 70)
     print("Basic Memory Demo")
-    print("  Pattern: Manual add_turn() + get_context()")
+    print("  Pattern: Manual add_turn() + await get_context()")
     print("  Backend: SQLite (zero configuration)")
     print("=" * 70)
     print()
@@ -157,7 +157,7 @@ Result: Context is always bounded, older content is compressed.
         print("-" * 70)
         
         # Show what's in context now
-        context = memory.get_context()
+        context = await memory.get_context()
         print(f"\nFinal context ({len(context)} chars):")
         print("-" * 40)
         # Show summary portion
@@ -186,7 +186,7 @@ Result: Context is always bounded, older content is compressed.
         print(f"Session ID: {memory.session_id[:8]}...")
         
         # Get context - should include Session 1 summary
-        context = memory.get_context()
+        context = await memory.get_context()
         print(f"\nLoaded context from previous session ({len(context)} chars):")
         print("-" * 40)
         print(context[:600] + "..." if len(context) > 600 else context)
@@ -229,7 +229,7 @@ Result: Context is always bounded, older content is compressed.
 Key takeaways:
 
 1. add_turn() - Store conversation pairs
-2. get_context() - Get formatted memory for LLM prompts  
+2. await get_context() - Get formatted memory for LLM prompts  
 3. search() - Find specific information semantically
 4. end_session() - Trigger insight extraction
 

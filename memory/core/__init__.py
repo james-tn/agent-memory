@@ -23,8 +23,6 @@ from memory.core.memory_keeper import (
 from memory.core.fact_retrieval import (
     FactRetrieval,
     FactRetrievalConfig,
-    # Backward compatibility alias
-    ContextualFactRetrieval
 )
 from memory.core.reflection import (
     Reflection,
@@ -33,24 +31,16 @@ from memory.core.reflection import (
     ComprehensiveSessionAnalysis,
     LongTermSynthesisOutput,
     LongTermProfileOutput,
-    # Backward compatibility alias
-    ReflectionProcess
 )
 from memory.core.orchestrator import (
     MemoryOrchestrator,
     OrchestratorConfig,
     create_orchestrator,
-    # Backward compatibility aliases
-    MemoryServiceOrchestrator,
-    SQLiteMemoryOrchestrator
 )
 from memory.core.agent_memory import (
     AgentMemory,
     AgentMemoryConfig,
     create_agent_memory,
-    # Backward compatibility aliases (from agent_memory module)
-    CosmosAgentMemory,
-    SQLiteAgentMemory
 )
 
 __all__ = [
@@ -80,11 +70,4 @@ __all__ = [
     "ComprehensiveSessionAnalysis",
     "LongTermSynthesisOutput",
     "LongTermProfileOutput",
-    # Backward compatibility
-    "ContextualFactRetrieval",
-    "ReflectionProcess",
-    "MemoryServiceOrchestrator",
-    "SQLiteMemoryOrchestrator",
-    "CosmosAgentMemory",
-    "SQLiteAgentMemory",
 ]

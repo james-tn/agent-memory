@@ -10,9 +10,9 @@ Provides a clean, easy-to-use API for agent memory with:
 This is the recommended entry point for the Agent Memory Service.
 """
 
-import uuid
 import os
-from typing import Dict, List, Optional, Any, Sequence, TYPE_CHECKING
+import uuid
+from typing import Any, Dict, List, Optional
 from dataclasses import dataclass, field
 
 # Agent Framework integration (optional dependency)
@@ -45,6 +45,9 @@ class AgentMemoryConfig:
     # Retrieval settings
     top_k_results: int = 5
     similarity_threshold: float = 0.75
+    include_longterm_insights: bool = True
+    include_recent_sessions: bool = True
+    include_cumulative_summary: bool = True
     
     # Auto-enrichment (keyword-triggered memory search)
     auto_enrich_context: bool = False
@@ -110,7 +113,7 @@ class AgentMemory(BaseContextProvider):
         )
         await memory.start_session()
         await memory.add_turn("Hello", "Hi there!")
-        context = memory.get_context()
+        context = await memory.get_context()
         await memory.end_session()
         
         # CosmosDB (enterprise)
@@ -127,7 +130,7 @@ class AgentMemory(BaseContextProvider):
             openai_client=openai_client
         ) as memory:
             await memory.add_turn("What's a Roth IRA?", "A Roth IRA is...")
-            context = memory.get_context()
+            context = await memory.get_context()
     """
     
     def __init__(
@@ -148,6 +151,7 @@ class AgentMemory(BaseContextProvider):
         
         # CosmosDB options
         connection_string: Optional[str] = None,
+        cosmos_endpoint: Optional[str] = None,
         cosmos_client=None,
         
         # Configuration
@@ -185,6 +189,7 @@ class AgentMemory(BaseContextProvider):
         self.db_type = db_type
         self.db_path = db_path
         self.connection_string = connection_string
+        self.cosmos_endpoint = cosmos_endpoint
         self.session_id = session_id
         self._session_started = False
         self._initialized = False
@@ -232,6 +237,8 @@ class AgentMemory(BaseContextProvider):
                 db_kwargs["connection_string"] = self.connection_string
             elif self._cosmos_client:
                 db_kwargs["cosmos_client"] = self._cosmos_client
+            elif self.cosmos_endpoint:
+                db_kwargs["endpoint"] = self.cosmos_endpoint
             else:
                 # Try environment variables
                 env_connection = os.getenv("COSMOS_CONNECTION_STRING") or os.getenv("AZURE_COSMOS_CONNECTION_STRING")
@@ -291,8 +298,14 @@ class AgentMemory(BaseContextProvider):
         if session_id:
             self.session_id = session_id
             self._orchestrator.session_id = session_id
+        elif not self._session_started and self.session_id is None:
+            self.session_id = str(uuid.uuid4())
+            self._orchestrator.session_id = self.session_id
         
-        result = await self._orchestrator.start_session()
+        if restore and not (session_id or self.session_id):
+            raise ValueError("restore=True requires an explicit session_id")
+
+        result = await self._orchestrator.start_session(restore=restore)
         self._session_started = True
         
         return result
@@ -352,10 +365,11 @@ class AgentMemory(BaseContextProvider):
             trigger_reflection=trigger_reflection
         )
         self._session_started = False
+        self.session_id = None
         
         return result
-    
-    def get_context(self) -> str:
+
+    async def get_context(self) -> str:
         """
         Get formatted memory context for AI prompt.
         Includes: long-term insights + recent summaries + active turns.
@@ -370,9 +384,12 @@ class AgentMemory(BaseContextProvider):
             raise RuntimeError(
                 "Session not started. Call start_session() first or use context manager."
             )
-        
-        # get_current_context returns a dict with 'context_text'
-        return self._orchestrator._memory_keeper.get_current_context()
+
+        return await self._orchestrator.get_formatted_context(
+            include_longterm_insights=self.config.include_longterm_insights,
+            include_recent_sessions=self.config.include_recent_sessions,
+            include_cumulative_summary=self.config.include_cumulative_summary,
+        )
     
     async def search(
         self,
@@ -403,6 +420,7 @@ class AgentMemory(BaseContextProvider):
         return await self._orchestrator.retrieve_facts(
             query,
             top_k=top_k,
+            include_interactions=search_interactions,
             include_summaries=search_summaries,
             include_insights=search_insights
         )
@@ -474,6 +492,7 @@ class AgentMemory(BaseContextProvider):
         """Close database connection and cleanup resources."""
         if self._orchestrator:
             await self._orchestrator.close()
+        self._orchestrator = None
         self._initialized = False
     
     async def __aenter__(self) -> "AgentMemory":
@@ -515,17 +534,21 @@ class AgentMemory(BaseContextProvider):
                 "Agent Framework not installed. Install with: pip install agent-framework"
             )
         
+        await self._before_agent_run(context)
+
+    async def _before_agent_run(self, context: Any) -> None:
+        """Shared implementation for pre-run context-provider hooks."""
         # Ensure initialized (but don't start a new session - let the demo manage that)
         await self._ensure_initialized()
-        
+
         # If no session, auto-start one
         if not self._session_started:
             await self.start_session()
-        
+
         context_parts = []
         
         # Get current memory context
-        memory_context = self.get_context()
+        memory_context = await self.get_context()
         if memory_context.strip():
             context_parts.append(memory_context)
         
@@ -558,13 +581,18 @@ class AgentMemory(BaseContextProvider):
 
         Automatically stores the conversation turn in memory.
         """
+        await self._after_agent_run(context)
+
+    async def _after_agent_run(self, context: Any) -> None:
+        """Shared implementation for post-run context-provider hooks."""
         if not self._session_started:
             return  # No active session
 
-        response_messages = context.response.messages if context.response else None
+        response = getattr(context, "response", None)
+        response_messages = response.messages if response else None
 
         # Extract user message and assistant response
-        user_text = self._extract_recent_user_text(context.input_messages)
+        user_text = self._extract_recent_user_text(getattr(context, "input_messages", None))
         assistant_text = self._extract_assistant_text(response_messages)
 
         if user_text and assistant_text:
@@ -613,11 +641,6 @@ class AgentMemory(BaseContextProvider):
             return False
         text_lower = text.lower()
         return any(kw in text_lower for kw in self.config.enrichment_trigger_keywords)
-
-
-# Backward compatibility aliases
-CosmosAgentMemory = AgentMemory
-SQLiteAgentMemory = AgentMemory
 
 
 def create_agent_memory(

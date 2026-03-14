@@ -19,8 +19,8 @@ Requires:
 import os
 from typing import Any, Dict, List, Optional
 
-from azure.cosmos import ContainerProxy, CosmosClient, DatabaseProxy
-from dotenv import load_dotenv
+from azure.cosmos.aio import ContainerProxy, CosmosClient, DatabaseProxy
+from azure.cosmos.exceptions import CosmosResourceNotFoundError
 
 from memory.db.base import (
     ContainerType,
@@ -30,7 +30,52 @@ from memory.db.base import (
     SearchResult,
 )
 
-load_dotenv()
+VECTOR_SEARCH_FIELDS = {
+    ContainerType.INTERACTIONS: [
+        "id",
+        "user_id",
+        "session_id",
+        "timestamp",
+        "content",
+        "summary",
+        "metadata",
+        "created_at",
+        "updated_at",
+    ],
+    ContainerType.INSIGHTS: [
+        "id",
+        "user_id",
+        "session_ids",
+        "insight_type",
+        "insight_text",
+        "category",
+        "confidence",
+        "importance",
+        "processed",
+        "source_insight_ids",
+        "source_session_ids",
+        "date_added",
+        "last_accessed",
+        "access_count",
+        "created_at",
+        "updated_at",
+    ],
+    ContainerType.SESSION_SUMMARIES: [
+        "id",
+        "user_id",
+        "start_time",
+        "end_time",
+        "summary",
+        "key_topics",
+        "extracted_insights",
+        "status",
+        "reflection_status",
+        "cumulative_summary",
+        "turn_count",
+        "created_at",
+        "updated_at",
+    ],
+}
 
 
 class CosmosDBDatabase(MemoryDatabase):
@@ -136,7 +181,7 @@ class CosmosDBDatabase(MemoryDatabase):
     async def close(self) -> None:
         """Close client if we own it."""
         if self._owns_client and self._client:
-            # CosmosClient doesn't have explicit close, but we can clean up
+            await self._client.close()
             self._client = None
         self._database = None
         self._containers.clear()
@@ -171,7 +216,7 @@ class CosmosDBDatabase(MemoryDatabase):
             raise ValueError("Document must have an 'id' field")
         
         container_client = self._get_container(container)
-        result = container_client.upsert_item(body=document)
+        result = await container_client.upsert_item(body=document)
         return result
     
     async def batch_upsert(
@@ -187,7 +232,7 @@ class CosmosDBDatabase(MemoryDatabase):
         for doc in documents:
             if "id" not in doc:
                 raise ValueError("Document must have an 'id' field")
-            result = container_client.upsert_item(body=doc)
+            result = await container_client.upsert_item(body=doc)
             results.append(result)
         
         return results
@@ -202,12 +247,12 @@ class CosmosDBDatabase(MemoryDatabase):
         container_client = self._get_container(container)
         
         try:
-            result = container_client.read_item(
+            result = await container_client.read_item(
                 item=document_id,
                 partition_key=partition_key
             )
             return result
-        except Exception:
+        except CosmosResourceNotFoundError:
             return None
     
     async def delete(
@@ -220,12 +265,12 @@ class CosmosDBDatabase(MemoryDatabase):
         container_client = self._get_container(container)
         
         try:
-            container_client.delete_item(
+            await container_client.delete_item(
                 item=document_id,
                 partition_key=partition_key
             )
             return True
-        except Exception:
+        except CosmosResourceNotFoundError:
             return False
     
     async def query(
@@ -263,13 +308,15 @@ class CosmosDBDatabase(MemoryDatabase):
         
         query = f"SELECT {top_clause} * FROM c {where_clause} {order_clause}"
         
-        results = list(container_client.query_items(
+        iterator = container_client.query_items(
             query=query,
             parameters=params,
-            enable_cross_partition_query=True
-        ))
-        
-        return results
+        )
+        return [item async for item in iterator]
+
+    def _build_vector_select_clause(self, container: ContainerType) -> str:
+        """Build an explicit field list for vector search results."""
+        return ", ".join(f"c.{field}" for field in VECTOR_SEARCH_FIELDS[container])
     
     async def vector_search(
         self,
@@ -300,20 +347,20 @@ class CosmosDBDatabase(MemoryDatabase):
         # NOTE: CosmosDB vector search does NOT support SELECT c.* with VectorDistance.
         # We must explicitly select the fields we want, excluding the vector fields.
         # The query returns non-vector fields only to avoid the "One of the input values is invalid" error.
+        select_clause = self._build_vector_select_clause(container)
         query = (
-            f"SELECT TOP {top_k} c.id, c.user_id, c.session_id, c.timestamp, "
-            f"c.content, c.summary, c.metadata, c.insight_text, c.category, c.topics, "
+            f"SELECT TOP {top_k} {select_clause}, "
             f"VectorDistance(c.{vector_field}, @embedding) AS similarity_score "
             f"FROM c {where_clause} "
             f"ORDER BY VectorDistance(c.{vector_field}, @embedding)"
         )
         
         try:
-            results = list(container_client.query_items(
+            iterator = container_client.query_items(
                 query=query,
                 parameters=params,
-                enable_cross_partition_query=True
-            ))
+            )
+            results = [item async for item in iterator]
         except Exception as e:
             print(f"[CosmosDB] Vector search error: {e}")
             print(f"[CosmosDB] Container: {container}, Vector field: {vector_field}")
@@ -388,11 +435,11 @@ class CosmosDBDatabase(MemoryDatabase):
             ORDER BY RANK RRF(VectorDistance(c.{vector_field}, {embedding_literal}), {full_text_score})
         """
         
-        results = list(container_client.query_items(
+        iterator = container_client.query_items(
             query=query,
             parameters=params,
-            enable_cross_partition_query=True
-        ))
+        )
+        results = [item async for item in iterator]
         
         # Convert to SearchResult
         search_results = []
@@ -407,224 +454,3 @@ class CosmosDBDatabase(MemoryDatabase):
             ))
         
         return search_results
-
-
-# Backward compatibility: Wrapper around CosmosDBDatabase for existing code
-class CosmosUtils:
-    """
-    Utility class for CosmosDB operations.
-    
-    This is a compatibility wrapper that maintains the existing API
-    while using the new CosmosDBDatabase backend internally.
-    """
-    
-    def __init__(self, embedding_client, embedding_deployment: str = None):
-        """
-        Initialize CosmosDB utilities.
-        
-        Args:
-            embedding_client: AzureOpenAI client for embeddings
-            embedding_deployment: Deployment name for embeddings
-        """
-        self.embedding_client = embedding_client
-        self.embedding_deployment = embedding_deployment or os.getenv(
-            "AZURE_OPENAI_EMB_DEPLOYMENT", "text-embedding-ada-002"
-        )
-    
-    def get_embedding(self, text: str) -> List[float]:
-        """Generate embedding vector for text."""
-        if not text or not text.strip():
-            raise ValueError("Text cannot be empty")
-        
-        response = self.embedding_client.embeddings.create(
-            input=text,
-            model=self.embedding_deployment
-        )
-        return response.data[0].embedding
-    
-    def get_embeddings_batch(self, texts: List[str]) -> List[List[float]]:
-        """Generate embeddings for multiple texts."""
-        if not texts:
-            raise ValueError("Texts list cannot be empty")
-        
-        valid_texts = [t for t in texts if t and t.strip()]
-        if not valid_texts:
-            raise ValueError("All texts are empty")
-        
-        response = self.embedding_client.embeddings.create(
-            input=valid_texts,
-            model=self.embedding_deployment
-        )
-        return [data.embedding for data in response.data]
-    
-    def execute_vector_search(
-        self,
-        container: ContainerProxy,
-        query_embedding: List[float],
-        vector_field: str = "content_vector",
-        top_k: int = 5,
-        filters: Optional[Dict[str, Any]] = None
-    ) -> List[Dict[str, Any]]:
-        """Execute vector similarity search."""
-        where_clause = ""
-        params = [
-            {"name": "@embedding", "value": query_embedding},
-            {"name": "@top_k", "value": top_k}
-        ]
-        
-        if filters:
-            conditions = [f"c.{key} = @{key}" for key in filters.keys()]
-            where_clause = " WHERE " + " AND ".join(conditions)
-            for key, value in filters.items():
-                params.append({"name": f"@{key}", "value": value})
-        
-        query = f"""
-            SELECT TOP @top_k c.*,
-                   VectorDistance(c.{vector_field}, @embedding) AS similarity_score
-            FROM c
-            {where_clause}
-            ORDER BY VectorDistance(c.{vector_field}, @embedding)
-        """
-        
-        return list(container.query_items(
-            query=query,
-            parameters=params,
-            enable_cross_partition_query=True
-        ))
-    
-    def execute_hybrid_search(
-        self,
-        container: ContainerProxy,
-        query_text: str,
-        query_embedding: List[float],
-        vector_field: str = "content_vector",
-        full_text_fields: Optional[List[str]] = None,
-        top_k: int = 5,
-        filters: Optional[Dict[str, Any]] = None,
-        weights: Optional[List[float]] = None
-    ) -> List[Dict[str, Any]]:
-        """Execute hybrid search with RRF."""
-        if full_text_fields is None:
-            full_text_fields = ["content"]
-        
-        embedding_literal = "[" + ",".join(str(x) for x in query_embedding) + "]"
-        safe_query_text = query_text.replace("'", "''")
-        search_terms = [f'"{term}"' for term in safe_query_text.split() if term.strip()]
-        search_terms_str = ", ".join(search_terms) if search_terms else f'"{safe_query_text}"'
-        
-        where_clause = ""
-        params = []
-        if filters:
-            conditions = [f"c.{key} = @{key}" for key in filters.keys()]
-            where_clause = " WHERE " + " AND ".join(conditions)
-            for key, value in filters.items():
-                params.append({"name": f"@{key}", "value": value})
-        
-        primary_field = full_text_fields[0]
-        full_text_score = f"FullTextScore(c.{primary_field}, {search_terms_str})"
-        
-        rrf_args = f"VectorDistance(c.{vector_field}, {embedding_literal}), {full_text_score}"
-        if weights:
-            weights_str = "[" + ",".join(str(w) for w in weights) + "]"
-            rrf_args += f", {weights_str}"
-        
-        query = f"""
-            SELECT TOP {top_k} *
-            FROM c
-            {where_clause}
-            ORDER BY RANK RRF({rrf_args})
-        """
-        
-        return list(container.query_items(
-            query=query,
-            parameters=params,
-            enable_cross_partition_query=True
-        ))
-    
-    def upsert_document(
-        self,
-        container: ContainerProxy,
-        document: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """Upsert a document."""
-        if "id" not in document:
-            raise ValueError("Document must have an 'id' field")
-        return container.upsert_item(body=document)
-    
-    def batch_upsert_documents(
-        self,
-        container: ContainerProxy,
-        documents: List[Dict[str, Any]]
-    ) -> List[Dict[str, Any]]:
-        """Upsert multiple documents."""
-        results = []
-        for doc in documents:
-            if "id" not in doc:
-                raise ValueError("Document must have an 'id' field")
-            results.append(container.upsert_item(body=doc))
-        return results
-    
-    def get_document_by_id(
-        self,
-        container: ContainerProxy,
-        document_id: str,
-        partition_key: str
-    ) -> Optional[Dict[str, Any]]:
-        """Get document by ID."""
-        try:
-            return container.read_item(item=document_id, partition_key=partition_key)
-        except Exception:
-            return None
-    
-    def query_documents(
-        self,
-        container: ContainerProxy,
-        query: str,
-        parameters: Optional[List[Dict[str, Any]]] = None,
-        enable_cross_partition: bool = True
-    ) -> List[Dict[str, Any]]:
-        """Execute custom query."""
-        return list(container.query_items(
-            query=query,
-            parameters=parameters or [],
-            enable_cross_partition_query=enable_cross_partition
-        ))
-    
-    def delete_document(
-        self,
-        container: ContainerProxy,
-        document_id: str,
-        partition_key: str
-    ) -> bool:
-        """Delete document."""
-        try:
-            container.delete_item(item=document_id, partition_key=partition_key)
-            return True
-        except Exception:
-            return False
-
-
-def create_cosmos_utils(
-    azure_openai_endpoint: str = None,
-    azure_openai_key: str = None,
-    embedding_deployment: str = None
-) -> CosmosUtils:
-    """Factory function to create CosmosUtils instance."""
-    from openai import AzureOpenAI
-    
-    endpoint = azure_openai_endpoint or os.getenv("AZURE_OPENAI_ENDPOINT")
-    api_key = azure_openai_key or os.getenv("AZURE_OPENAI_API_KEY")
-    
-    if not endpoint or not api_key:
-        raise ValueError("Azure OpenAI endpoint and API key are required")
-    
-    embedding_client = AzureOpenAI(
-        azure_endpoint=endpoint,
-        api_key=api_key,
-        api_version="2024-08-01-preview"
-    )
-    
-    return CosmosUtils(
-        embedding_client=embedding_client,
-        embedding_deployment=embedding_deployment
-    )

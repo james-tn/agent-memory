@@ -238,8 +238,8 @@ async def run_verification_session(memory: AgentMemory):
     async with memory:
         await memory.start_session()
         
-        # Get context that includes the long-term profile (synchronous call)
-        context = memory.get_context()
+        # Get context that includes the long-term profile
+        context = await memory.get_context()
         
         print("MEMORY CONTEXT PROVIDED TO AGENT:")
         print("-"*40)

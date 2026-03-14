@@ -82,7 +82,7 @@ client = AzureOpenAI(...)
 # SQLite backend - no server required!
 async with AgentMemory(user_id="user123", openai_client=client) as memory:
     await memory.add_turn("Hello!", "Hi there!")
-    context = memory.get_context()
+    context = await memory.get_context()
     print(context)  # Formatted memory for AI prompt
 ```
 
@@ -204,7 +204,7 @@ See [infra/README.md](infra/README.md) for details.
 
 | Demo | Backend | Description |
 |------|---------|-------------|
-| `demo/01_basic_memory.py` | SQLite | Manual `add_turn()` + `get_context()` |
+| `demo/01_basic_memory.py` | SQLite | Manual `add_turn()` + `await get_context()` |
 | `demo/02_agent_framework.py` | SQLite | Agent Framework integration with context providers |
 | `demo/03_agent_driven.py` | SQLite | Explicit memory search tools |
 | `demo/07_interactive_ui.py` | CosmosDB | Interactive Streamlit UI |
@@ -281,7 +281,7 @@ class AgentMemory:
     
     # Core methods
     async def add_turn(user_message: str, assistant_message: str)
-    def get_context() -> str
+    async def get_context() -> str
     async def search(query: str, top_k: int = 5) -> List[SearchResult]
     async def start_session(session_id: str | None = None)
     async def end_session()  # Triggers reflection

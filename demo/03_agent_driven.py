@@ -10,7 +10,7 @@ Two Approaches Compared:
 ------------------------
 
 1. MANAGED CONTEXT (demos 01-05):
-   - Context provider calls `invoking()` before each turn
+   - Context provider calls `before_run()` before each turn
    - System automatically decides when to search memory (LLM or keyword detection)
    - Agent receives pre-enriched context
    - Agent is passive - doesn't control memory access

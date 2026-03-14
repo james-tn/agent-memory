@@ -15,7 +15,7 @@ Data Model:
 """
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 import math
 import uuid
@@ -158,7 +158,7 @@ def calculate_retention_score(
         Retention score (higher = more likely to retain)
     """
     if now is None:
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
     
     if importance_weights is None:
         importance_weights = {"high": 1.5, "medium": 1.0, "low": 0.7}

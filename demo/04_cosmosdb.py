@@ -73,7 +73,7 @@ async def run_session(
     print(f"Session ID: {memory.session_id[:8]}...")
     
     # Show memory context
-    context = memory.get_context()
+    context = await memory.get_context()
     print(f"\n📚 Memory context loaded ({len(context)} chars):")
     print(f"   {context[:200]}..." if len(context) > 200 else f"   {context}")
     print()
@@ -87,8 +87,8 @@ async def run_session(
     # End session (triggers reflection and long-term synthesis)
     result = await memory.end_session(trigger_reflection=True)
     print(f"\n✅ Session complete")
-    print(f"   Summary: {result.get('summary', '')[:80]}...")
-    print(f"   Insights: {len(result.get('insights', []))}")
+    print(f"   Summary: {result.get('session_summary', '')[:80]}...")
+    print(f"   Insights: {len(result.get('insights_extracted', []))}")
 
 
 async def main():

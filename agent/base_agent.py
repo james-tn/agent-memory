@@ -17,6 +17,7 @@ class BaseAgent:
         self.azure_openai_key = os.getenv("AZURE_OPENAI_API_KEY")  
         self.azure_openai_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")  
         self.api_version = os.getenv("AZURE_OPENAI_API_VERSION")  
+        self.mcp_server_uri = os.getenv("MCP_SERVER_URI")
   
         self.session_id = session_id  
         self.state_store = state_store  
@@ -30,6 +31,8 @@ class BaseAgent:
   
     def append_to_chat_history(self, messages: List[Dict[str, str]]) -> None:  
         self.chat_history.extend(messages)  
+        if len(self.chat_history) > self.MAX_CHAT_HISTORY_MESSAGES:
+            self.chat_history = self.chat_history[-self.MAX_CHAT_HISTORY_MESSAGES:]
         self.state_store[f"{self.session_id}_chat_history"] = self.chat_history  
   
     def set_websocket_manager(self, manager: Any) -> None:
@@ -44,3 +47,4 @@ class BaseAgent:
         Override in child class!  
         """  
         raise NotImplementedError("chat_async should be implemented in subclass.")  
+    MAX_CHAT_HISTORY_MESSAGES = 200

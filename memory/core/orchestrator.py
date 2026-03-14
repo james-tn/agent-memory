@@ -12,12 +12,13 @@ Works with any database backend implementing the MemoryDatabase interface
 
 import uuid
 import asyncio
-from datetime import datetime
+import math
+from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Any, Union
 from enum import Enum
 
-from memory.db.base import MemoryDatabase, ContainerType, DatabaseCapabilities
+from memory.db.base import MemoryDatabase, ContainerType, DatabaseCapabilities, SearchResult
 from memory.db.factory import create_database, DatabaseType
 from memory.providers.embedding import EmbeddingProvider, OpenAIEmbeddingProvider
 from memory.core.memory_keeper import MemoryKeeper, MemoryConfig as MemoryKeeperConfig
@@ -42,8 +43,8 @@ class OrchestratorConfig:
     # Model settings
     REASONING_MODEL: str = "gpt-4o"
     PROCESSING_MODEL: str = "gpt-4o-mini"
-    EMBEDDING_MODEL: str = "text-embedding-3-large"
-    EMBEDDING_DIMENSIONS: int = 3072
+    EMBEDDING_MODEL: str = "text-embedding-ada-002"
+    EMBEDDING_DIMENSIONS: int = 1536
     
     # Auto-enrichment (LLM-based semantic detection)
     auto_enrich_context: bool = False
@@ -180,6 +181,9 @@ class MemoryOrchestrator:
         # Auto-enrichment cache
         self._enrichment_cache: Optional[Dict[str, Any]] = None
         self._last_enrichment_turn_count: int = 0
+
+    def _utcnow_iso(self) -> str:
+        return datetime.now(timezone.utc).isoformat()
     
     async def initialize(self) -> None:
         """Initialize the orchestrator, database, and components."""
@@ -223,7 +227,7 @@ class MemoryOrchestrator:
         
         self._initialized = True
     
-    async def start_session(self) -> Dict[str, Any]:
+    async def start_session(self, restore: bool = False) -> Dict[str, Any]:
         """
         Start a new session and load historical context.
         
@@ -237,24 +241,37 @@ class MemoryOrchestrator:
         
         print(f"[Orchestrator] Starting session {self.session_id}")
         
-        # Track session start time
-        self._session_start_time = datetime.utcnow().isoformat()
-        
-        # Create session document in database
-        session_doc = {
-            "id": self.session_id,
-            "user_id": self.user_id,
-            "start_time": self._session_start_time,
-            "status": "active",
-            "cumulative_summary": "",
-            "turn_count": 0
-        }
-        
-        await self._database.upsert(
-            container=ContainerType.SESSION_SUMMARIES,
-            document=session_doc,
-            partition_key=self.user_id
-        )
+        if restore:
+            existing_session = await self._database.get_by_id(
+                container=ContainerType.SESSION_SUMMARIES,
+                document_id=self.session_id,
+                partition_key=self.user_id,
+            )
+            if not existing_session:
+                raise ValueError(f"Cannot restore missing session: {self.session_id}")
+            if existing_session.get("status") == "completed":
+                raise ValueError(f"Cannot restore completed session: {self.session_id}")
+            self._session_start_time = existing_session.get("start_time") or self._utcnow_iso()
+            self._memory_keeper.cumulative_summary = existing_session.get("cumulative_summary", "")
+        else:
+            # Track session start time
+            self._session_start_time = self._utcnow_iso()
+            
+            # Create session document in database
+            session_doc = {
+                "id": self.session_id,
+                "user_id": self.user_id,
+                "start_time": self._session_start_time,
+                "status": "active",
+                "cumulative_summary": "",
+                "turn_count": 0
+            }
+            
+            await self._database.upsert(
+                container=ContainerType.SESSION_SUMMARIES,
+                document=session_doc,
+                partition_key=self.user_id
+            )
         
         # Initialize memory keeper with historical context
         session_init_context = await self._memory_keeper.start_session(self._reflection)
@@ -302,7 +319,9 @@ class MemoryOrchestrator:
         return {
             "turn_added": True,
             "summarization_triggered": prune_result is not None,
+            "pruning_triggered": prune_result is not None,
             "active_turns_count": len(self._memory_keeper.turn_buffer),
+            "turn_count": self.turn_count,
             "prune_result": prune_result
         }
     
@@ -310,6 +329,7 @@ class MemoryOrchestrator:
         self,
         query: str,
         top_k: int = 5,
+        include_interactions: bool = True,
         include_summaries: bool = True,
         include_insights: bool = True
     ) -> str:
@@ -326,24 +346,33 @@ class MemoryOrchestrator:
             Formatted string with retrieved facts
         """
         await self.initialize()
-        
+
+        if self._memory_keeper:
+            await self._memory_keeper.wait_for_pending_tasks()
+
         results = []
         query_vector = self._embedding_provider.get_embedding(query)
-        
-        # 1. Search interactions (always)
-        interaction_results = await self._database.vector_search(
-            ContainerType.INTERACTIONS,
-            query_vector,
-            "content_vector",
-            top_k,
-            {"user_id": self.user_id}
-        )
-        for r in interaction_results:
-            content = r.get("content", "")[:300]
-            if content:
-                results.append(f"[Conversation] {content}...")
-        
-        # 2. Search session summaries
+
+        # 1. Search the current in-memory session first if we don't yet have
+        # persisted interaction chunks for this turn buffer.
+        active_session_results = self._search_active_session_facts(query_vector, top_k)
+        results.extend(active_session_results)
+
+        # 2. Search persisted interactions.
+        if include_interactions:
+            interaction_results = await self._search_persisted_interactions(
+                query_vector=query_vector,
+                top_k=top_k,
+            )
+            for r in interaction_results:
+                summary = r.get("summary", "")
+                content = r.get("content", "")[:300]
+                if summary:
+                    results.append(f"[Conversation] {summary}")
+                elif content:
+                    results.append(f"[Conversation] {content}...")
+
+        # 3. Search session summaries
         if include_summaries:
             summary_results = await self._database.vector_search(
                 ContainerType.SESSION_SUMMARIES,
@@ -356,8 +385,8 @@ class MemoryOrchestrator:
                 summary = r.get("summary", "")
                 if summary:
                     results.append(f"[Session Summary] {summary}")
-        
-        # 3. Search insights
+
+        # 4. Search insights
         if include_insights:
             insight_results = await self._database.vector_search(
                 ContainerType.INSIGHTS,
@@ -371,11 +400,103 @@ class MemoryOrchestrator:
                 category = r.get("category", "general")
                 if insight_text:
                     results.append(f"[Insight: {category}] {insight_text}")
-        
+
+        results = self._dedupe_retrieved_facts(results)
+
         if not results:
             return "No relevant information found."
-        
+
         return "\n".join(results[:top_k * 3])
+
+    async def _search_persisted_interactions(
+        self,
+        *,
+        query_vector: List[float],
+        top_k: int,
+    ) -> List[SearchResult]:
+        """Search persisted interaction chunks, preferring summary embeddings."""
+        seen_ids = set()
+        merged_results: List[SearchResult] = []
+
+        for vector_field in ("summary_vector", "content_vector"):
+            vector_results = await self._database.vector_search(
+                ContainerType.INTERACTIONS,
+                query_vector,
+                vector_field,
+                top_k,
+                {"user_id": self.user_id}
+            )
+            for result in vector_results:
+                if result.id in seen_ids:
+                    continue
+                seen_ids.add(result.id)
+                merged_results.append(result)
+
+        return merged_results
+
+    def _search_active_session_facts(
+        self,
+        query_vector: List[float],
+        top_k: int,
+    ) -> List[str]:
+        """Search the current in-memory session state as a fallback for live turns."""
+        if not self._memory_keeper:
+            return []
+
+        candidates: List[tuple[float, str]] = []
+
+        if self._memory_keeper.cumulative_summary:
+            similarity = self._cosine_similarity(
+                query_vector,
+                self._embedding_provider.get_embedding(self._memory_keeper.cumulative_summary),
+            )
+            candidates.append(
+                (
+                    similarity,
+                    f"[Current Session Summary] {self._memory_keeper.cumulative_summary}",
+                )
+            )
+
+        if self._memory_keeper.turn_buffer:
+            active_text = "\n".join(
+                f"{turn.role}: {turn.content}" for turn in self._memory_keeper.turn_buffer
+            )
+            similarity = self._cosine_similarity(
+                query_vector,
+                self._embedding_provider.get_embedding(active_text),
+            )
+            candidates.append(
+                (
+                    similarity,
+                    f"[Active Conversation] {active_text}",
+                )
+            )
+
+        candidates.sort(key=lambda item: item[0], reverse=True)
+        return [text for score, text in candidates[:top_k] if score > 0]
+
+    def _dedupe_retrieved_facts(self, results: List[str]) -> List[str]:
+        """Preserve order while removing duplicate retrieval lines."""
+        deduped = []
+        seen = set()
+        for result in results:
+            if result in seen:
+                continue
+            seen.add(result)
+            deduped.append(result)
+        return deduped
+
+    def _cosine_similarity(self, left: List[float], right: List[float]) -> float:
+        """Compute cosine similarity for two embedding vectors."""
+        if not left or not right or len(left) != len(right):
+            return 0.0
+
+        dot = sum(a * b for a, b in zip(left, right))
+        left_norm = math.sqrt(sum(a * a for a in left))
+        right_norm = math.sqrt(sum(b * b for b in right))
+        if left_norm == 0 or right_norm == 0:
+            return 0.0
+        return dot / (left_norm * right_norm)
     
     async def get_current_context(
         self,
@@ -419,6 +540,25 @@ class MemoryOrchestrator:
                 context["recalled_facts"] = recalled_facts
         
         return context
+
+    async def get_formatted_context(
+        self,
+        *,
+        include_longterm_insights: bool = True,
+        include_recent_sessions: bool = True,
+        include_cumulative_summary: bool = True,
+    ) -> str:
+        """Return formatted context text for prompt injection."""
+        await self.initialize()
+
+        if not self._session_started:
+            await self.start_session()
+
+        return self._memory_keeper.get_current_context(
+            include_longterm_insights=include_longterm_insights,
+            include_recent_sessions=include_recent_sessions,
+            include_cumulative_summary=include_cumulative_summary,
+        )
     
     async def end_session(self, trigger_reflection: bool = True) -> Dict[str, Any]:
         """
@@ -459,19 +599,19 @@ class MemoryOrchestrator:
         summary_vector = self._embedding_provider.get_embedding(summary_text)
         
         # Use tracked start_time (or fallback to now if not tracked)
-        start_time = self._session_start_time or datetime.utcnow().isoformat()
+        start_time = self._session_start_time or self._utcnow_iso()
         
         # Update session document
         session_doc = {
             "id": self.session_id,
             "user_id": self.user_id,
             "start_time": start_time,  # Preserve start_time
-            "end_time": datetime.utcnow().isoformat(),
+            "end_time": self._utcnow_iso(),
             "summary": summary_text,
             "summary_vector": summary_vector,
             "key_topics": analysis.get("key_topics", []),
             "status": "completed",
-            "reflection_status": "processed" if analysis.get("has_meaningful_insights") else "no_insights"
+            "reflection_status": "processed" if analysis.get("has_meaningful_insights") else "no-insight"
         }
         
         await self._database.upsert(
@@ -500,8 +640,8 @@ class MemoryOrchestrator:
                     "confidence": insight_data.get("confidence", 0.5),
                     "importance": insight_data.get("importance", "medium"),
                     "processed": False,
-                    "created_at": datetime.utcnow().isoformat(),
-                    "updated_at": datetime.utcnow().isoformat()
+                    "created_at": self._utcnow_iso(),
+                    "updated_at": self._utcnow_iso()
                 }
                 
                 await self._database.upsert(
@@ -512,10 +652,12 @@ class MemoryOrchestrator:
                 insights_stored.append(insight_doc)
         
         # Check long-term synthesis trigger
-        await self._check_longterm_synthesis_trigger()
+        synthesis_triggered = await self._check_longterm_synthesis_trigger()
         
         total_duration = time.time() - _timer_start
         print(f"  ✓ Session ended (total: {total_duration:.2f}s)")
+        self._session_started = False
+        self._recent_turns = []
         
         return {
             "session_id": self.session_id,
@@ -523,7 +665,8 @@ class MemoryOrchestrator:
             "key_topics": analysis.get("key_topics", []),
             "insights_extracted": insights_stored,
             "has_meaningful_insights": analysis.get("has_meaningful_insights", False),
-            "total_turns": len(self._recent_turns)
+            "total_turns": len(self._recent_turns),
+            "synthesis_triggered": synthesis_triggered,
         }
     
     async def get_longterm_insight(self) -> Optional[str]:
@@ -712,7 +855,7 @@ REASON: <brief explanation>"""
             print(f"  [Auto-Enrich] ⚠ Error: {e}")
             return None
     
-    async def _check_longterm_synthesis_trigger(self) -> None:
+    async def _check_longterm_synthesis_trigger(self) -> bool:
         """Check if it's time to trigger long-term synthesis."""
         try:
             # Count completed sessions
@@ -727,8 +870,16 @@ REASON: <brief explanation>"""
             if session_count > 0 and session_count % frequency == 0:
                 print(f"[LongTerm] 🔄 Triggering synthesis (session #{session_count})")
                 await self._reflection.update_longterm_insight(self.user_id)
+                return True
+            return False
         except Exception as e:
             print(f"[LongTerm] ⚠ Error checking trigger: {e}")
+            return False
+
+    @property
+    def turn_count(self) -> int:
+        """Return the number of recorded user/assistant turn pairs."""
+        return len(self._recent_turns) // 2
     
     def get_status(self) -> Dict[str, Any]:
         """Get current orchestrator status."""
@@ -737,6 +888,7 @@ REASON: <brief explanation>"""
             "session_id": self.session_id,
             "initialized": self._initialized,
             "session_started": self._session_started,
+            "turn_count": self.turn_count,
             "active_turns": len(self._memory_keeper.turn_buffer) if self._memory_keeper else 0,
             "buffer_capacity": self.config.K_TURN_BUFFER,
             "database_type": self._db_type.value if hasattr(self._db_type, 'value') else str(self._db_type),
@@ -847,8 +999,3 @@ def create_orchestrator(
         config=config,
         **db_kwargs
     )
-
-
-# Backward compatibility aliases
-MemoryServiceOrchestrator = MemoryOrchestrator
-SQLiteMemoryOrchestrator = MemoryOrchestrator

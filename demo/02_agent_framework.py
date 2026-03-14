@@ -7,8 +7,8 @@ as a ContextProvider, enabling **automatic** memory management.
 
 Key Features Demonstrated:
 - AgentMemory as a `context_provider` - no manual memory calls needed
-- Automatic context injection via `invoking()` hook
-- Automatic turn capture via `invoked()` hook  
+- Automatic context injection via `before_run()` hook
+- Automatic turn capture via `after_run()` hook  
 - Auto-enrichment: keyword-triggered memory search
 - Hidden recall_facts tool injection (optional)
 - Granular context control (insights, sessions, summary, turns)
@@ -16,8 +16,8 @@ Key Features Demonstrated:
 
 How it works:
 1. Memory is passed to ChatAgent as `context_providers=[memory]`
-2. Before each turn: `invoking()` injects memory context into the prompt
-3. After each turn: `invoked()` automatically stores the conversation
+2. Before each turn: `before_run()` injects memory context into the prompt
+3. After each turn: `after_run()` automatically stores the conversation
 4. At session end: Reflection extracts insights for future sessions
 
 Run: uv run python -m demos.01_financial_advisor
@@ -80,8 +80,8 @@ async def run_session(agent: Agent, memory: AgentMemory, queries: list[str], ses
     Run a conversation session.
     
     Note: Memory is automatically managed via the ContextProvider interface.
-    - invoking() injects context before each agent call
-    - invoked() stores each turn after the agent responds
+    - before_run() injects context before each agent call
+    - after_run() stores each turn after the agent responds
     """
     print(f"\n{'='*70}")
     print(f"SESSION: {session_name}")
@@ -92,7 +92,7 @@ async def run_session(agent: Agent, memory: AgentMemory, queries: list[str], ses
     print(f"Session ID: {memory.session_id[:8]}...")
     
     # Show loaded memory context
-    context = memory.get_context()
+    context = await memory.get_context()
     if context.strip():
         print(f"\n📚 Memory context loaded ({len(context)} chars):")
         preview = context[:300] + "..." if len(context) > 300 else context
@@ -178,8 +178,8 @@ async def main():
     
     # Create the agent with memory as a context_provider
     # This is the key integration - memory automatically:
-    # 1. Injects context before each turn (via invoking())
-    # 2. Stores each turn after response (via invoked())
+    # 1. Injects context before each turn (via before_run())
+    # 2. Stores each turn after response (via after_run())
     agent = Agent(
         client=chat_client,
         instructions="""You are an expert financial advisor specializing in retirement planning.

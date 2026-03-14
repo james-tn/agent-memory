@@ -178,5 +178,4 @@ def create_database_from_config(
     )
 
 
-# Re-export OpenAIEmbeddingProvider for backward compatibility
 from memory.providers.embedding import OpenAIEmbeddingProvider

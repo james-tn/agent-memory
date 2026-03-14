@@ -4,7 +4,7 @@ Demos organized from **simple → complex** and **local → production**:
 
 | # | Demo | Backend | Complexity | Focus |
 |---|------|---------|------------|-------|
-| 01 | [Basic Memory](01_basic_memory.py) | SQLite | ⭐ | Manual `add_turn()` + `get_context()` - no framework |
+| 01 | [Basic Memory](01_basic_memory.py) | SQLite | ⭐ | Manual `add_turn()` + `await get_context()` - no framework |
 | 02 | [Agent Framework](02_agent_framework.py) | SQLite | ⭐⭐ | Auto context injection via `context_providers` |
 | 03 | [Agent-Driven](03_agent_driven.py) | SQLite | ⭐⭐⭐ | Explicit memory tools - agent controls searches |
 | 04 | [CosmosDB](04_cosmosdb.py) | CosmosDB | ⭐⭐ | Same as 02 but with production backend |
@@ -61,7 +61,7 @@ async with AgentMemory(user_id="user123", openai_client=client, config=config) a
     # ... many more turns - older ones get summarized automatically
     
     # Get formatted context for your LLM prompt
-    context = memory.get_context()  # Always bounded size!
+    context = await memory.get_context()  # Always bounded size!
     
     # Search for specific information
     results = await memory.search("user preferences")
@@ -99,7 +99,7 @@ async with memory:
     await memory.end_session()
 ```
 
-**When to use:** Most applications. Let the system handle memory automatically.
+**When to use:** Most applications. Let the system handle memory automatically through `before_run()`/`after_run()`.
 
 ---
 
@@ -299,6 +299,6 @@ COSMOS_ENDPOINT=https://your-account.documents.azure.com:443/
 
 | Pattern | Demos | Context Injection | Turn Storage | Memory Search |
 |---------|-------|-------------------|--------------|---------------|
-| **Manual** | 01 | You call `get_context()` | You call `add_turn()` | You call `search()` |
+| **Manual** | 01 | You call `await get_context()` | You call `add_turn()` | You call `search()` |
 | **Auto-Context** | 02, 04 | Automatic via `before_run()` | Automatic via `after_run()` | Keyword-triggered |
 | **Agent-Driven** | 03 | Minimal (session summary) | Automatic via `after_run()` | Agent calls `search_memory` tool |

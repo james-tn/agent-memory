@@ -3,6 +3,15 @@ Prompt templates for Agent Memory Service.
 All prompts use for metadata generation, reflection, and summarization.
 """
 
+PROMPT_VERSIONS = {
+    "session_analysis_with_citations": "v1",
+    "metadata_generation": "v1",
+    "longterm_profile_create": "v2",
+    "longterm_profile_update": "v2",
+    "cumulative_summary": "v1",
+    "comprehensive_session_analysis": "v1",
+}
+
 # ==================== Session Analysis with Citation Tracking ====================
 
 SESSION_ANALYSIS_WITH_CITATIONS_PROMPT = """You are analyzing a completed conversation session. Your task has TWO parts:
@@ -74,7 +83,7 @@ Example output:
 
 
 # Long-term Insight Synthesis
-LONGTERM_SYNTHESIS_PROMPT = """You are creating a comprehensive client profile for a financial advisor.
+LONGTERM_SYNTHESIS_PROMPT = """You are creating a comprehensive user profile from recurring conversation insights.
 
 Current baseline profile:
 {baseline_longterm_insight}
@@ -87,18 +96,56 @@ Synthesize a cohesive, comprehensive client profile that:
 1. Integrates all new information
 2. Resolves any contradictions (favor more recent information)
 3. Organizes information logically
-4. Maintains a professional, concise tone
-5. Focuses on actionable client characteristics
+4. Maintains a concise, neutral tone
+5. Focuses on actionable user characteristics
 
 The profile should cover:
-- Client demographics and background
-- Financial goals and timeline
-- Risk tolerance and investment preferences
-- Current financial situation
-- Key concerns and priorities
+- User background and stable context
+- Goals and priorities
+- Preferences and constraints
+- Behavior patterns and decision style
+- Knowledge level or learning needs
 - Communication preferences
 
-Output: A well-structured paragraph (200-300 words) summarizing the complete client profile.
+Output: A well-structured paragraph (150-250 words) summarizing the complete user profile.
+"""
+
+LONGTERM_PROFILE_CREATE_PROMPT = """You are creating an initial long-term user profile from session insights.
+
+User ID: {user_id}
+
+SESSION INSIGHTS (grouped by category):
+{new_insights_context}
+
+Task: Create a cohesive narrative profile that:
+1. Synthesizes insights within each category into clear statements
+2. Identifies patterns and trends across sessions
+3. Presents information in a structured, easy-to-read format
+4. Removes redundancies and conflicting information
+5. Organizes by categories for easy reference
+
+IMPORTANT: Keep the profile CONCISE. Use brief, direct language.
+"""
+
+LONGTERM_PROFILE_UPDATE_PROMPT = """You are updating an existing long-term user profile with new insights from recent sessions.
+
+User ID: {user_id}
+
+EXISTING USER PROFILE:
+{existing_profile}
+
+NEW SESSION INSIGHTS (to be incorporated):
+{new_insights_context}
+
+Task: Update the user profile by:
+1. Integrating new insights into the existing profile
+2. Identifying evolving patterns and changes over time
+3. Updating or refining existing information with new data
+4. Maintaining the structured, category-based format
+5. Removing outdated or contradicted information
+6. Highlighting any significant changes or new learnings
+
+IMPORTANT: Keep the profile CONCISE and focused. Use brief, direct language.
 """
 
 # Cumulative Summary Update

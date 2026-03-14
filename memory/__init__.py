@@ -6,12 +6,12 @@ agent memory across conversations. Supports SQLite (local) and CosmosDB (enterpr
 Quick Start:
     from memory import AgentMemory, AgentMemoryConfig
     from memory.db.factory import DatabaseType
-    
+
     # SQLite (default, no server required)
     async with AgentMemory(user_id="user123", openai_client=client) as memory:
         await memory.add_turn("Hello!", "Hi there!")
-        context = memory.get_context()
-    
+        context = await memory.get_context()
+
     # CosmosDB (enterprise)
     memory = AgentMemory(
         user_id="user123",
@@ -41,6 +41,11 @@ from memory.core.orchestrator import (
     OrchestratorConfig,
     create_orchestrator,
 )
+from memory.core.insight_items import (
+    LongTermInsightItem,
+    InsightCitation,
+    SessionAnalysisWithCitations,
+)
 
 # Database layer
 from memory.db.factory import DatabaseType, create_database
@@ -49,40 +54,32 @@ from memory.db.base import MemoryDatabase, ContainerType, SearchResult
 # Embedding providers
 from memory.providers.embedding import EmbeddingProvider, OpenAIEmbeddingProvider
 
-# Backward compatibility aliases
-CosmosAgentMemory = AgentMemory  # Use AgentMemory with db_type=DatabaseType.COSMOSDB
-SQLiteAgentMemory = AgentMemory  # Use AgentMemory with db_type=DatabaseType.SQLITE
-MemoryServiceOrchestrator = MemoryOrchestrator  # Alias to unified MemoryOrchestrator
-
 
 __all__ = [
     # Version
     "__version__",
-    
+
     # Main API (recommended)
     "AgentMemory",
     "AgentMemoryConfig",
     "create_agent_memory",
-    
+
     # Orchestrator (advanced usage)
     "MemoryOrchestrator",
     "OrchestratorConfig",
     "create_orchestrator",
-    
+    "LongTermInsightItem",
+    "InsightCitation",
+    "SessionAnalysisWithCitations",
+
     # Database layer
     "DatabaseType",
     "create_database",
     "MemoryDatabase",
     "ContainerType",
     "SearchResult",
-    
+
     # Embedding providers
     "EmbeddingProvider",
     "OpenAIEmbeddingProvider",
-    
-    # Backward compatibility
-    "CosmosAgentMemory",
-    "SQLiteAgentMemory",
-    "MemoryServiceOrchestrator",
 ]
-

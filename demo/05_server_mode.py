@@ -9,7 +9,7 @@ Prerequisites:
    uv run uvicorn server.main:app --port 8000
 
 2. Run this demo:
-   uv run python demo/04_financial_advisor_remote.py
+   uv run python demo/05_server_mode.py
 """
 
 import asyncio
