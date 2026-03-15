@@ -128,6 +128,7 @@ def test_search_forwards_search_flags(monkeypatch, install_agent_framework_stubs
         "include_interactions": False,
         "include_summaries": True,
         "include_insights": True,
+        "search_mode": "auto",
     }
 
 

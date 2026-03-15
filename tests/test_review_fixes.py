@@ -88,6 +88,24 @@ def test_agent_memory_end_session_keeps_instance_reusable(monkeypatch, install_a
     assert memory._orchestrator is orchestrator
 
 
+def test_agent_memory_close_does_not_close_shared_database(install_agent_framework_stubs):
+    memory = AgentMemory(user_id="user-1", embedding_provider=FakeEmbeddingProvider(), database=object())
+
+    class FakeOrchestrator:
+        def __init__(self):
+            self.close_calls = []
+
+        async def close(self, *, close_database=None):
+            self.close_calls.append(close_database)
+
+    orchestrator = FakeOrchestrator()
+    memory._orchestrator = orchestrator
+
+    asyncio.run(memory.close())
+
+    assert orchestrator.close_calls == [False]
+
+
 def test_agent_memory_restore_requires_explicit_session_id(install_agent_framework_stubs):
     memory = AgentMemory(user_id="user-1", embedding_provider=FakeEmbeddingProvider())
 
@@ -113,7 +131,7 @@ def test_cosmos_close_awaits_owned_client():
 
 
 def test_cosmos_not_found_is_swallowed_but_other_errors_propagate():
-    from azure.cosmos.exceptions import CosmosResourceNotFoundError
+    CosmosResourceNotFoundError = CosmosDBDatabase.get_by_id.__globals__["CosmosResourceNotFoundError"]
 
     class FakeContainer:
         async def read_item(self, item, partition_key):

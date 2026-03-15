@@ -1,83 +1,114 @@
-# Preprovision hook for Azure Developer CLI (azd)
-# This script runs before infrastructure provisioning to set up required environment variables
+$ErrorActionPreference = 'Stop'
 
 Write-Host "Running preprovision setup..." -ForegroundColor Cyan
 
-# Check if auth is enabled
-$enableAuth = azd env get-value ENABLE_AUTH
-if ($enableAuth -eq "true") {
-    Write-Host "\nEntra ID authentication is enabled" -ForegroundColor Yellow
-    
-    $authClientId = azd env get-value AUTH_CLIENT_ID
-    $authTenantId = azd env get-value AUTH_TENANT_ID
-    
-    if ([string]::IsNullOrWhiteSpace($authClientId)) {
-        Write-Host "⚠ Warning: ENABLE_AUTH is true but AUTH_CLIENT_ID is not set" -ForegroundColor Yellow
-        Write-Host "  Set it with: azd env set AUTH_CLIENT_ID <your-client-id>" -ForegroundColor Yellow
-    } else {
-        Write-Host "  Client ID: $authClientId" -ForegroundColor Gray
-        Write-Host "  Tenant ID: $(if ($authTenantId) { $authTenantId } else { '(deployment tenant)' })" -ForegroundColor Gray
-        Write-Host "" -ForegroundColor Gray
-        Write-Host "  ⚠ IMPORTANT: After deployment, add this redirect URI to your Entra ID app:" -ForegroundColor Yellow
-        Write-Host "  https://<your-app-fqdn>/.auth/login/aad/callback" -ForegroundColor Cyan
-        Write-Host "  (The exact URL will be shown in the deployment output)" -ForegroundColor Gray
-    }
-}
+function Get-AzdValue {
+    param([Parameter(Mandatory = $true)][string]$Name)
 
-# Preprovision hook for Azure Developer CLI (azd)
-# This script runs before infrastructure provisioning to set up required environment variables
-
-Write-Host "Running preprovision setup..." -ForegroundColor Cyan
-
-# Check if auth is enabled
-$enableAuth = azd env get-value ENABLE_AUTH
-if ($enableAuth -eq "true") {
-    Write-Host "`nEntra ID authentication is enabled" -ForegroundColor Yellow
-    
-    $authClientId = azd env get-value AUTH_CLIENT_ID
-    $authTenantId = azd env get-value AUTH_TENANT_ID
-    
-    if ([string]::IsNullOrWhiteSpace($authClientId)) {
-        Write-Host "⚠ Warning: ENABLE_AUTH is true but AUTH_CLIENT_ID is not set" -ForegroundColor Yellow
-        Write-Host "  Set it with: azd env set AUTH_CLIENT_ID <your-client-id>" -ForegroundColor Yellow
-    } else {
-        Write-Host "  Client ID: $authClientId" -ForegroundColor Gray
-        Write-Host "  Tenant ID: $(if ($authTenantId) { $authTenantId } else { '(deployment tenant)' })" -ForegroundColor Gray
-        Write-Host "" -ForegroundColor Gray
-        Write-Host "  ⚠ IMPORTANT: After deployment, add this redirect URI to your Entra ID app:" -ForegroundColor Yellow
-        Write-Host "  https://<your-app-fqdn>/.auth/login/aad/callback" -ForegroundColor Cyan
-        Write-Host "  (The exact URL will be shown in the deployment output)" -ForegroundColor Gray
-    }
-}
-
-# Get the signed-in user's object ID for Cosmos DB RBAC
-Write-Host "Getting local developer object ID for Cosmos DB access..." -ForegroundColor Yellow
-
-try {
-    $signedInUser = az ad signed-in-user show --query id -o tsv
-    
+    $value = azd env get-value $Name 2>$null
     if ($LASTEXITCODE -ne 0) {
-        throw "Failed to get signed-in user object ID"
+        return ''
     }
-    
-    if ([string]::IsNullOrWhiteSpace($signedInUser)) {
-        throw "Object ID is empty"
-    }
-    
-    Write-Host "Found object ID: $signedInUser" -ForegroundColor Green
-    
-    # Set azd environment variable for use in Bicep
-    azd env set LOCAL_DEVELOPER_OBJECT_ID $signedInUser
-    
-    Write-Host "✓ Local developer object ID configured" -ForegroundColor Green
-    
-} catch {
-    Write-Host "⚠ Warning: Could not get local developer object ID" -ForegroundColor Yellow
-    Write-Host "  You may need to manually assign Cosmos DB roles for local development" -ForegroundColor Yellow
-    Write-Host "  Error: $_" -ForegroundColor Yellow
-    
-    # Set empty value so Bicep doesn't fail
-    azd env set LOCAL_DEVELOPER_OBJECT_ID ""
+    return ($value | Out-String).Trim()
 }
+
+function Set-AzdValue {
+    param(
+        [Parameter(Mandatory = $true)][string]$Name,
+        [Parameter(Mandatory = $true)][string]$Value
+    )
+
+    azd env set $Name $Value | Out-Null
+}
+
+function Ensure-AuthReminder {
+    $enableAuth = Get-AzdValue 'ENABLE_AUTH'
+    if ($enableAuth -ne 'true') {
+        return
+    }
+
+    Write-Host "`nEntra ID authentication is enabled" -ForegroundColor Yellow
+    $authClientId = Get-AzdValue 'AUTH_CLIENT_ID'
+    $authTenantId = Get-AzdValue 'AUTH_TENANT_ID'
+
+    if ([string]::IsNullOrWhiteSpace($authClientId)) {
+        Write-Host "⚠ Warning: ENABLE_AUTH is true but AUTH_CLIENT_ID is not set" -ForegroundColor Yellow
+        Write-Host "  Set it with: azd env set AUTH_CLIENT_ID <your-client-id>" -ForegroundColor Yellow
+        return
+    }
+
+    Write-Host "  Client ID: $authClientId" -ForegroundColor Gray
+    Write-Host "  Tenant ID: $(if ($authTenantId) { $authTenantId } else { '(deployment tenant)' })" -ForegroundColor Gray
+    Write-Host "  Redirect URI will be shown again after deployment." -ForegroundColor Gray
+}
+
+function Ensure-LocalDeveloperObjectId {
+    Write-Host "`nGetting local developer object ID for Cosmos DB access..." -ForegroundColor Yellow
+
+    try {
+        $signedInUser = (az ad signed-in-user show --query id -o tsv).Trim()
+        if ([string]::IsNullOrWhiteSpace($signedInUser)) {
+            throw "Object ID is empty"
+        }
+
+        Set-AzdValue -Name 'LOCAL_DEVELOPER_OBJECT_ID' -Value $signedInUser
+        Write-Host "  ✓ LOCAL_DEVELOPER_OBJECT_ID set" -ForegroundColor Green
+    }
+    catch {
+        Write-Host "  ⚠ Could not determine local developer object ID: $_" -ForegroundColor Yellow
+        Set-AzdValue -Name 'LOCAL_DEVELOPER_OBJECT_ID' -Value ''
+    }
+}
+
+function Ensure-PostgresCredentials {
+    $adminLogin = Get-AzdValue 'POSTGRES_ADMIN_LOGIN'
+    if ([string]::IsNullOrWhiteSpace($adminLogin)) {
+        $adminLogin = 'agentmemoryadmin'
+        Set-AzdValue -Name 'POSTGRES_ADMIN_LOGIN' -Value $adminLogin
+        Write-Host "`nSet default POSTGRES_ADMIN_LOGIN to $adminLogin" -ForegroundColor Green
+    }
+
+    $postgresLocation = Get-AzdValue 'POSTGRES_LOCATION'
+    if ([string]::IsNullOrWhiteSpace($postgresLocation)) {
+        Write-Host "PostgreSQL will use AZURE_LOCATION unless POSTGRES_LOCATION is explicitly set." -ForegroundColor Gray
+    }
+    else {
+        Write-Host "Using explicit POSTGRES_LOCATION override: $postgresLocation" -ForegroundColor Gray
+    }
+
+    $adminPassword = Get-AzdValue 'POSTGRES_ADMIN_PASSWORD'
+    if ([string]::IsNullOrWhiteSpace($adminPassword)) {
+        $bytes = New-Object byte[] 24
+        [System.Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
+        $generatedPassword = [Convert]::ToBase64String($bytes).Replace('+', 'A').Replace('/', 'b') + '9!'
+        Set-AzdValue -Name 'POSTGRES_ADMIN_PASSWORD' -Value $generatedPassword
+        Write-Host "Generated and stored POSTGRES_ADMIN_PASSWORD in the local azd environment." -ForegroundColor Green
+    }
+    else {
+        Write-Host "`nUsing existing POSTGRES_ADMIN_PASSWORD from azd env." -ForegroundColor Gray
+    }
+}
+
+function Ensure-LocalPublicIp {
+    Write-Host "`nDetecting public IPv4 address for PostgreSQL firewall..." -ForegroundColor Yellow
+    try {
+        $ip = (Invoke-RestMethod -Uri 'https://api.ipify.org').Trim()
+        if ([string]::IsNullOrWhiteSpace($ip)) {
+            throw "IP address lookup returned empty value"
+        }
+        Set-AzdValue -Name 'LOCAL_DEVELOPER_PUBLIC_IP' -Value $ip
+        Write-Host "  ✓ LOCAL_DEVELOPER_PUBLIC_IP set to $ip" -ForegroundColor Green
+    }
+    catch {
+        Write-Host "  ⚠ Could not determine public IP: $_" -ForegroundColor Yellow
+        Write-Host "    PostgreSQL local firewall rule may need manual follow-up." -ForegroundColor Yellow
+        Set-AzdValue -Name 'LOCAL_DEVELOPER_PUBLIC_IP' -Value ''
+    }
+}
+
+Ensure-AuthReminder
+Ensure-LocalDeveloperObjectId
+Ensure-PostgresCredentials
+Ensure-LocalPublicIp
 
 Write-Host "`nPreprovision setup complete!" -ForegroundColor Cyan

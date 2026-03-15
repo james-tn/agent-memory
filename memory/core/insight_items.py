@@ -77,6 +77,7 @@ class LongTermInsightItem:
     # Identity
     id: str                           # e.g., "INS-001", "INS-002"
     user_id: str                      # User this insight belongs to
+    agent_id: str                     # Agent scope for this insight
     
     # Content
     insight_text: str                 # The actual insight
@@ -94,12 +95,16 @@ class LongTermInsightItem:
     
     # Embedding for semantic search
     embedding: Optional[List[float]] = None
+    mutation_history: List[Dict[str, Any]] = field(default_factory=list)
+    is_deleted: bool = False
+    deleted_at: Optional[str] = None
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for storage."""
         return {
             "id": self.id,
             "user_id": self.user_id,
+            "agent_id": self.agent_id,
             "insight_type": "long_term_item",  # Distinguish from old format
             "insight_text": self.insight_text,
             "insight_vector": self.embedding,
@@ -110,6 +115,9 @@ class LongTermInsightItem:
             "last_accessed": self.last_accessed.isoformat(),
             "access_count": self.access_count,
             "source_session_ids": self.source_session_ids,
+            "mutation_history": self.mutation_history,
+            "is_deleted": self.is_deleted,
+            "deleted_at": self.deleted_at,
         }
     
     @classmethod
@@ -118,6 +126,7 @@ class LongTermInsightItem:
         return cls(
             id=data["id"],
             user_id=data["user_id"],
+            agent_id=data.get("agent_id", "default"),
             insight_text=data["insight_text"],
             category=data.get("category", "general"),
             confidence=data.get("confidence", 0.5),
@@ -127,6 +136,9 @@ class LongTermInsightItem:
             access_count=data.get("access_count", 0),
             source_session_ids=data.get("source_session_ids", []),
             embedding=data.get("insight_vector"),
+            mutation_history=data.get("mutation_history", []),
+            is_deleted=data.get("is_deleted", False),
+            deleted_at=data.get("deleted_at"),
         )
 
 

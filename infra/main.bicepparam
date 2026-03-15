@@ -21,3 +21,10 @@ param enableAuth = bool(readEnvironmentVariable('ENABLE_AUTH', 'true'))
 param authClientId = readEnvironmentVariable('AUTH_CLIENT_ID', '')
 param authTenantId = readEnvironmentVariable('AUTH_TENANT_ID', '')
 param authClientSecret = readEnvironmentVariable('AUTH_CLIENT_SECRET', '')
+
+// PostgreSQL configuration for live testing
+param postgresAdminLogin = readEnvironmentVariable('POSTGRES_ADMIN_LOGIN', 'agentmemoryadmin')
+param postgresAdminPassword = readEnvironmentVariable('POSTGRES_ADMIN_PASSWORD', '')
+param postgresLocation = readEnvironmentVariable('POSTGRES_LOCATION', readEnvironmentVariable('AZURE_LOCATION', 'eastus'))
+param postgresServerNameSuffix = readEnvironmentVariable('POSTGRES_SERVER_NAME_SUFFIX', '')
+param localDeveloperPublicIp = readEnvironmentVariable('LOCAL_DEVELOPER_PUBLIC_IP', '')

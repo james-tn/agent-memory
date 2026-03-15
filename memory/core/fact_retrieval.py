@@ -17,12 +17,25 @@ import os
 from typing import List, Dict, Optional, Any, Annotated
 from dataclasses import dataclass
 
-from agent_framework import Agent, tool
-from agent_framework.azure import AzureOpenAIChatClient
 from azure.identity import DefaultAzureCredential
 
 from memory.db.base import ContainerType, MemoryDatabase, SearchResult
 from memory.providers.embedding import EmbeddingProvider
+
+try:
+    from agent_framework import Agent, tool
+    from agent_framework.azure import AzureOpenAIChatClient
+    HAS_AGENT_FRAMEWORK = True
+except ImportError:
+    HAS_AGENT_FRAMEWORK = False
+    Agent = Any
+
+    def tool(*args, **kwargs):
+        def decorator(func):
+            return func
+        return decorator
+
+    AzureOpenAIChatClient = None
 
 
 @dataclass
@@ -32,6 +45,7 @@ class FactRetrievalConfig:
     DEFAULT_INTERACTIONS_LIMIT: int = 5
     DEFAULT_SUMMARIES_LIMIT: int = 3
     DEFAULT_INSIGHTS_LIMIT: int = 3
+    search_mode: str = "auto"
 
 
 class FactRetrieval:
@@ -39,7 +53,7 @@ class FactRetrieval:
     Database-agnostic Fact Retrieval for intelligent memory retrieval.
     
     Uses the MemoryDatabase interface to work with any backend
-    (SQLite, CosmosDB, PostgreSQL).
+    (SQLite, CosmosDB, Azure AI Search, PostgreSQL).
     
     The agent uses three search tools to intelligently retrieve memory:
     1. search_interactions: Search past conversation chunks
@@ -52,7 +66,11 @@ class FactRetrieval:
         user_id: str,
         database: MemoryDatabase,
         embedding_provider: EmbeddingProvider,
-        config: Optional[FactRetrievalConfig] = None
+        config: Optional[FactRetrievalConfig] = None,
+        agent_id: str = "default",
+        azure_openai_endpoint: Optional[str] = None,
+        azure_openai_api_key: Optional[str] = None,
+        azure_openai_api_version: Optional[str] = None,
     ):
         """
         Initialize fact retrieval with Agent Framework.
@@ -64,9 +82,13 @@ class FactRetrieval:
             config: Configuration settings (uses defaults if not provided)
         """
         self.user_id = user_id
+        self.agent_id = agent_id
         self.database = database
         self.embedding_provider = embedding_provider
         self.config = config or FactRetrievalConfig()
+        self._azure_openai_endpoint = azure_openai_endpoint or os.getenv("AZURE_OPENAI_ENDPOINT")
+        self._azure_openai_api_key = azure_openai_api_key or os.getenv("AZURE_OPENAI_API_KEY")
+        self._azure_openai_api_version = azure_openai_api_version or os.getenv("AZURE_OPENAI_API_VERSION")
         
         # Create search tool functions with closure over self
         @tool(
@@ -125,13 +147,24 @@ class FactRetrieval:
         self._search_summaries_tool = search_summaries_tool
         self._search_insights_tool = search_insights_tool
         
-        # Create the Agent Framework agent with search_interactions tool by default
+        self.agent: Optional[Agent] = None
+
+    def _get_agent(self) -> Agent:
+        """Lazily create the Agent Framework client when synthesis is requested."""
+        if self.agent is not None:
+            return self.agent
+        if not HAS_AGENT_FRAMEWORK:
+            raise RuntimeError("FactRetrieval synthesis requires agent-framework to be installed.")
+        if not self._azure_openai_endpoint:
+            raise ValueError("FactRetrieval requires an Azure OpenAI endpoint for agent synthesis.")
+
         self.agent = Agent(
             client=AzureOpenAIChatClient(
-                credential=DefaultAzureCredential(),
-                endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
-                api_version=os.getenv("AZURE_OPENAI_API_VERSION"),
-                deployment_name=self.config.REASONING_MODEL
+                credential=DefaultAzureCredential() if not self._azure_openai_api_key else None,
+                api_key=self._azure_openai_api_key,
+                endpoint=self._azure_openai_endpoint,
+                api_version=self._azure_openai_api_version,
+                deployment_name=self.config.REASONING_MODEL,
             ),
             instructions="""You are a memory retrieval assistant. Your job is to search through past conversations, 
 session summaries, and long-term insights to find relevant information for the user's query.
@@ -143,8 +176,9 @@ Use the available search tools to find the most relevant information:
 
 After searching, synthesize the findings into a clear, concise response.""",
             name="CFR_Agent",
-            tools=[search_interactions_tool]  # Default: only search interactions
+            tools=[self._search_interactions_tool],
         )
+        return self.agent
     
     async def retrieve(
         self, 
@@ -173,7 +207,7 @@ After searching, synthesize the findings into a clear, concise response.""",
         if include_insights:
             tools.append(self._search_insights_tool)
         
-        result = await self.agent.run(query, tools=tools)
+        result = await self._get_agent().run(query, tools=tools)
         return result.text
     
     async def _search_interactions(self, query: str, max_results: int = 5) -> List[SearchResult]:
@@ -192,12 +226,12 @@ After searching, synthesize the findings into a clear, concise response.""",
             query_embedding = self.embedding_provider.get_embedding(query)
             
             # Use database abstraction layer for vector search
-            results = await self.database.vector_search(
+            results = await self._search_container(
                 container=ContainerType.INTERACTIONS,
+                query=query,
                 query_embedding=query_embedding,
                 vector_field="summary_vector",
-                top_k=max_results,
-                filters={"user_id": self.user_id}
+                max_results=max_results,
             )
             
             return results
@@ -243,12 +277,12 @@ After searching, synthesize the findings into a clear, concise response.""",
             query_embedding = self.embedding_provider.get_embedding(query)
             
             # Use database abstraction layer for vector search
-            results = await self.database.vector_search(
+            results = await self._search_container(
                 container=ContainerType.SESSION_SUMMARIES,
+                query=query,
                 query_embedding=query_embedding,
                 vector_field="summary_vector",
-                top_k=max_results,
-                filters={"user_id": self.user_id}
+                max_results=max_results,
             )
             
             return results
@@ -290,15 +324,15 @@ After searching, synthesize the findings into a clear, concise response.""",
             query_embedding = self.embedding_provider.get_embedding(query)
             
             # Use database abstraction layer for vector search
-            results = await self.database.vector_search(
+            results = await self._search_container(
                 container=ContainerType.INSIGHTS,
+                query=query,
                 query_embedding=query_embedding,
                 vector_field="insight_vector",
-                top_k=max_results,
-                filters={"user_id": self.user_id}
+                max_results=max_results,
             )
-            
-            return results
+
+            return [result for result in results if not result.get("is_deleted", False)]
         except Exception as e:
             print(f"Error searching insights: {e}")
             import traceback
@@ -321,3 +355,41 @@ After searching, synthesize the findings into a clear, concise response.""",
                 f"   Similarity: {result.score:.4f}\n"
             )
         return "\n".join(formatted)
+
+    async def _search_container(
+        self,
+        *,
+        container: ContainerType,
+        query: str,
+        query_embedding: List[float],
+        vector_field: str,
+        max_results: int,
+    ) -> List[SearchResult]:
+        """Search a container using the configured retrieval mode."""
+        mode = self._resolve_search_mode()
+        if mode == "hybrid":
+            return await self.database.hybrid_search(
+                container=container,
+                query_text=query,
+                query_embedding=query_embedding,
+                vector_field=vector_field,
+                top_k=max_results,
+                filters={"user_id": self.user_id, "agent_id": self.agent_id},
+            )
+        return await self.database.vector_search(
+            container=container,
+            query_embedding=query_embedding,
+            vector_field=vector_field,
+            top_k=max_results,
+            filters={"user_id": self.user_id, "agent_id": self.agent_id},
+        )
+
+    def _resolve_search_mode(self) -> str:
+        """Resolve the configured search mode against backend capabilities."""
+        requested = (self.config.search_mode or "auto").lower()
+        capabilities = self.database.get_capabilities()
+        if requested == "auto":
+            return "hybrid" if capabilities.supports_hybrid_search else "vector"
+        if requested == "hybrid" and not capabilities.supports_hybrid_search:
+            return "vector"
+        return requested

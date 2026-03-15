@@ -7,6 +7,7 @@ simple hybrid retrieval using PostgreSQL full-text search plus vector fusion.
 
 import json
 import os
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 import asyncpg
@@ -214,6 +215,12 @@ HYBRID_TEXT_EXPRESSIONS = {
     ContainerType.SESSION_SUMMARIES: "coalesce(summary, '') || ' ' || coalesce(cumulative_summary, '')",
 }
 
+REQUIRED_FIELDS = {
+    ContainerType.INTERACTIONS: {"user_id", "agent_id", "session_id", "timestamp", "content", "created_at", "updated_at"},
+    ContainerType.INSIGHTS: {"user_id", "agent_id", "insight_type", "insight_text", "created_at", "updated_at"},
+    ContainerType.SESSION_SUMMARIES: {"user_id", "agent_id", "start_time", "created_at", "updated_at"},
+}
+
 
 class PostgreSQLDatabase(MemoryDatabase):
     """PostgreSQL implementation of the memory database interface."""
@@ -277,34 +284,22 @@ class PostgreSQLDatabase(MemoryDatabase):
         partition_key: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Insert or update one document."""
+        container = self._normalize_container(container)
         if "id" not in document:
             raise ValueError("Document must have an 'id' field")
 
-        table = TABLE_NAMES[container]
-        prepared = self._prepare_document(container, document)
-        columns = list(prepared.keys())
-        placeholders: List[str] = []
-        values: List[Any] = []
-
-        for index, column in enumerate(columns, start=1):
-            value = prepared[column]
-            values.append(value)
-            if column in VECTOR_FIELDS[container] and value is not None:
-                placeholders.append(f"${index}::vector")
-            elif column in JSON_FIELDS[container]:
-                placeholders.append(f"${index}::jsonb")
-            else:
-                placeholders.append(f"${index}")
-
-        update_columns = [column for column in columns if column != "id"]
-        update_clause = ", ".join(f"{column} = EXCLUDED.{column}" for column in update_columns)
-        sql = (
-            f"INSERT INTO {table} ({', '.join(columns)}) "
-            f"VALUES ({', '.join(placeholders)}) "
-            f"ON CONFLICT (id) DO UPDATE SET {update_clause}"
-        )
-
         async with self._pool.acquire() as conn:
+            normalized = await self._normalize_document_for_upsert(conn, container, document)
+            table = TABLE_NAMES[container]
+            prepared = self._prepare_document(container, normalized)
+            columns, placeholders, values = self._build_upsert_values(container, prepared)
+            update_columns = [column for column in columns if column != "id"]
+            update_clause = ", ".join(f"{column} = EXCLUDED.{column}" for column in update_columns)
+            sql = (
+                f"INSERT INTO {table} ({', '.join(columns)}) "
+                f"VALUES ({', '.join(placeholders)}) "
+                f"ON CONFLICT (id) DO UPDATE SET {update_clause}"
+            )
             await self._execute_upsert(conn, sql, values)
         return document
 
@@ -315,28 +310,17 @@ class PostgreSQLDatabase(MemoryDatabase):
         partition_key: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """Insert or update multiple documents in a transaction."""
+        container = self._normalize_container(container)
         async with self._pool.acquire() as conn:
             async with conn.transaction():
                 for document in documents:
                     if "id" not in document:
                         raise ValueError("Document must have an 'id' field")
 
+                    normalized = await self._normalize_document_for_upsert(conn, container, document)
                     table = TABLE_NAMES[container]
-                    prepared = self._prepare_document(container, document)
-                    columns = list(prepared.keys())
-                    placeholders: List[str] = []
-                    values: List[Any] = []
-
-                    for index, column in enumerate(columns, start=1):
-                        value = prepared[column]
-                        values.append(value)
-                        if column in VECTOR_FIELDS[container] and value is not None:
-                            placeholders.append(f"${index}::vector")
-                        elif column in JSON_FIELDS[container]:
-                            placeholders.append(f"${index}::jsonb")
-                        else:
-                            placeholders.append(f"${index}")
-
+                    prepared = self._prepare_document(container, normalized)
+                    columns, placeholders, values = self._build_upsert_values(container, prepared)
                     update_columns = [column for column in columns if column != "id"]
                     update_clause = ", ".join(f"{column} = EXCLUDED.{column}" for column in update_columns)
                     sql = (
@@ -354,6 +338,7 @@ class PostgreSQLDatabase(MemoryDatabase):
         partition_key: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         """Fetch one document by ID."""
+        container = self._normalize_container(container)
         table = TABLE_NAMES[container]
         select_clause = ", ".join(SELECT_FIELDS[container])
         sql = f"SELECT {select_clause} FROM {table} WHERE id = $1"
@@ -367,6 +352,7 @@ class PostgreSQLDatabase(MemoryDatabase):
         partition_key: Optional[str] = None,
     ) -> bool:
         """Delete a document by ID."""
+        container = self._normalize_container(container)
         table = TABLE_NAMES[container]
         result = await self._pool.execute(f"DELETE FROM {table} WHERE id = $1", document_id)
         return result.endswith("1")
@@ -379,6 +365,7 @@ class PostgreSQLDatabase(MemoryDatabase):
         limit: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         """Query documents with equality filters."""
+        container = self._normalize_container(container)
         self._validate_filter_keys(container, filters)
         table = TABLE_NAMES[container]
         select_clause = ", ".join(SELECT_FIELDS[container])
@@ -407,6 +394,7 @@ class PostgreSQLDatabase(MemoryDatabase):
         filters: Optional[Dict[str, Any]] = None,
     ) -> List[SearchResult]:
         """Perform pgvector cosine search."""
+        container = self._normalize_container(container)
         self._validate_filter_keys(container, filters)
         table = TABLE_NAMES[container]
         select_clause = ", ".join(SELECT_FIELDS[container])
@@ -444,6 +432,7 @@ class PostgreSQLDatabase(MemoryDatabase):
         filters: Optional[Dict[str, Any]] = None,
     ) -> List[SearchResult]:
         """Combine pgvector cosine similarity with PostgreSQL full-text ranking."""
+        container = self._normalize_container(container)
         self._validate_filter_keys(container, filters)
         table = TABLE_NAMES[container]
         select_clause = ", ".join(SELECT_FIELDS[container])
@@ -483,6 +472,7 @@ class PostgreSQLDatabase(MemoryDatabase):
 
     def _prepare_document(self, container: ContainerType, document: Dict[str, Any]) -> Dict[str, Any]:
         """Convert app document to PostgreSQL-friendly values."""
+        container = self._normalize_container(container)
         prepared = dict(document)
         for key in VECTOR_FIELDS[container]:
             value = prepared.get(key)
@@ -493,8 +483,32 @@ class PostgreSQLDatabase(MemoryDatabase):
                 prepared[key] = json.dumps(prepared[key])
         return prepared
 
+    def _build_upsert_values(
+        self,
+        container: ContainerType,
+        prepared: Dict[str, Any],
+    ) -> tuple[List[str], List[str], List[Any]]:
+        """Build column metadata for one upsert statement."""
+        container = self._normalize_container(container)
+        columns = list(prepared.keys())
+        placeholders: List[str] = []
+        values: List[Any] = []
+
+        for index, column in enumerate(columns, start=1):
+            value = prepared[column]
+            values.append(value)
+            if column in VECTOR_FIELDS[container] and value is not None:
+                placeholders.append(f"${index}::vector")
+            elif column in JSON_FIELDS[container]:
+                placeholders.append(f"${index}::jsonb")
+            else:
+                placeholders.append(f"${index}")
+
+        return columns, placeholders, values
+
     def _validate_filter_keys(self, container: ContainerType, filters: Optional[Dict[str, Any]]) -> None:
         """Reject unsupported filter keys early."""
+        container = self._normalize_container(container)
         if not filters:
             return
         unknown = sorted(set(filters) - FILTERABLE_FIELDS[container])
@@ -527,6 +541,7 @@ class PostgreSQLDatabase(MemoryDatabase):
 
     def _record_to_dict(self, container: ContainerType, row: Any) -> Dict[str, Any]:
         """Normalize an asyncpg record into app document form."""
+        container = self._normalize_container(container)
         data = dict(row)
         for key in VECTOR_FIELDS[container]:
             if key in data and data[key] is not None:
@@ -540,6 +555,53 @@ class PostgreSQLDatabase(MemoryDatabase):
     async def _execute_upsert(self, conn: Any, sql: str, values: List[Any]) -> None:
         """Execute one prepared upsert statement."""
         await conn.execute(sql, *values)
+
+    async def _normalize_document_for_upsert(
+        self,
+        conn: Any,
+        container: ContainerType,
+        document: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Fill backend-required fields for partial upserts."""
+        container = self._normalize_container(container)
+        normalized = dict(document)
+        now = self._utcnow_iso()
+        existing = None
+
+        missing_required = REQUIRED_FIELDS[container] - set(normalized)
+        if missing_required:
+            existing = await self._fetch_existing_document(conn, container, normalized["id"])
+            if existing:
+                for key, value in existing.items():
+                    normalized.setdefault(key, value)
+
+        normalized.setdefault("created_at", now)
+        normalized.setdefault("updated_at", now)
+        if container == ContainerType.SESSION_SUMMARIES:
+            normalized.setdefault("start_time", now)
+        return normalized
+
+    async def _fetch_existing_document(
+        self,
+        conn: Any,
+        container: ContainerType,
+        document_id: str,
+    ) -> Optional[Dict[str, Any]]:
+        """Fetch an existing document for merge-style upserts."""
+        container = self._normalize_container(container)
+        table = TABLE_NAMES[container]
+        select_clause = ", ".join(SELECT_FIELDS[container])
+        row = await conn.fetchrow(f"SELECT {select_clause} FROM {table} WHERE id = $1", document_id)
+        return None if row is None else self._record_to_dict(container, row)
+
+    def _normalize_container(self, container: ContainerType | str) -> ContainerType:
+        """Normalize enum instances that may come from reloaded modules."""
+        if isinstance(container, ContainerType):
+            return container
+        return ContainerType(getattr(container, "value", container))
+
+    def _utcnow_iso(self) -> str:
+        return datetime.now(timezone.utc).isoformat()
 
     def _vector_literal(self, values: List[float]) -> str:
         """Serialize a Python vector into pgvector literal syntax."""

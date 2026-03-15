@@ -27,6 +27,7 @@ class SessionContext:
     session_id: str
     user_id: str
     context: str
+    agent_id: str = "default"
     turn_count: int = 0
     insights_loaded: bool = False
     recent_sessions_count: int = 0
@@ -79,6 +80,7 @@ class MemoryServiceClient:
         self,
         service_url: str,
         user_id: str,
+        agent_id: str = "default",
         session_id: Optional[str] = None,
         timeout: float = 60.0,
         max_retries: int = 2,
@@ -94,6 +96,7 @@ class MemoryServiceClient:
         """
         self.service_url = service_url.rstrip("/")
         self.user_id = user_id
+        self.agent_id = agent_id
         self.session_id = session_id
         self.timeout = timeout
         self.max_retries = max_retries
@@ -189,6 +192,7 @@ class MemoryServiceClient:
         """
         payload = {
             "user_id": self.user_id,
+            "agent_id": self.agent_id,
             "session_id": self.session_id,
             "restore": restore
         }
@@ -203,6 +207,7 @@ class MemoryServiceClient:
         return SessionContext(
             session_id=data["session_id"],
             user_id=data["user_id"],
+            agent_id=data.get("agent_id", self.agent_id),
             context=data["context"],
             insights_loaded=data.get("insights_loaded", False),
             recent_sessions_count=data.get("recent_sessions_count", 0)
@@ -220,6 +225,7 @@ class MemoryServiceClient:
         
         payload = {
             "user_id": self.user_id,
+            "agent_id": self.agent_id,
             "session_id": self.session_id
         }
         
@@ -229,6 +235,7 @@ class MemoryServiceClient:
         return SessionContext(
             session_id=self.session_id,
             user_id=self.user_id,
+            agent_id=self.agent_id,
             context=data["context"],
             turn_count=data.get("turn_count", 0)
         )
@@ -253,6 +260,7 @@ class MemoryServiceClient:
         
         payload = {
             "user_id": self.user_id,
+            "agent_id": self.agent_id,
             "session_id": self.session_id,
             "user_message": user_message,
             "assistant_message": assistant_message
@@ -286,6 +294,7 @@ class MemoryServiceClient:
         
         payload = {
             "user_id": self.user_id,
+            "agent_id": self.agent_id,
             "session_id": self.session_id,
             "trigger_reflection": trigger_reflection
         }
@@ -315,7 +324,8 @@ class MemoryServiceClient:
         top_k: int = 5,
         search_interactions: bool = True,
         search_insights: bool = True,
-        search_summaries: bool = False
+        search_summaries: bool = False,
+        search_mode: str = "auto",
     ) -> str:
         """
         Search memory for relevant information.
@@ -332,11 +342,13 @@ class MemoryServiceClient:
         """
         payload = {
             "user_id": self.user_id,
+            "agent_id": self.agent_id,
             "query": query,
             "top_k": top_k,
             "search_interactions": search_interactions,
             "search_insights": search_insights,
-            "search_summaries": search_summaries
+            "search_summaries": search_summaries,
+            "search_mode": search_mode,
         }
         
         response = await self._request("POST", "/search", json=payload)
@@ -361,7 +373,7 @@ class MemoryServiceClient:
         response = await self._request(
             "GET",
             f"/users/{self.user_id}/insights",
-            params={"limit": limit},
+            params={"limit": limit, "agent_id": self.agent_id},
         )
         
         data = response.json()
@@ -380,7 +392,7 @@ class MemoryServiceClient:
         response = await self._request(
             "GET",
             f"/users/{self.user_id}/sessions",
-            params={"limit": limit},
+            params={"limit": limit, "agent_id": self.agent_id},
         )
         
         data = response.json()

@@ -10,6 +10,7 @@ PROMPT_VERSIONS = {
     "longterm_profile_update": "v2",
     "cumulative_summary": "v1",
     "comprehensive_session_analysis": "v1",
+    "conflict_resolution": "v1",
 }
 
 # ==================== Session Analysis with Citation Tracking ====================
@@ -185,11 +186,7 @@ List the main topics discussed. Be specific and concise (e.g., "Roth IRA contrib
 
 ## 3. INSIGHTS (0-5 insights)
 Extract actionable insights about the user in these categories:
-- **preferences**: What they like/dislike, communication style, information preferences
-- **knowledge_level**: What they understand well, areas of expertise or confusion
-- **goals**: What they're trying to achieve, objectives, targets
-- **behavior_patterns**: How they interact, decision-making style, engagement patterns
-- **learning_progress**: What they've learned, areas of growth, understanding development
+{category_instructions}
 
 For each insight provide:
 - insight_text: Clear, CONCISE, specific, actionable observation (1-2 sentences max)
@@ -204,6 +201,31 @@ IMPORTANT:
 - Keep all text CONCISE - avoid verbosity
 
 Return your analysis in the structured format specified.
+"""
+
+CONFLICT_RESOLUTION_PROMPT = """You are reconciling newly extracted user memory insights with existing memories.
+
+Allowed events:
+- ADD: brand new information worth storing
+- UPDATE: same underlying memory, but the new wording is richer or more current
+- DELETE: existing memory is contradicted or should be retired
+- NONE: no storage change is needed
+
+Rules:
+1. Prefer NONE for semantically equivalent memories.
+2. Prefer UPDATE when the new memory adds specificity to the same topic.
+3. Prefer DELETE plus a separate ADD when the new memory contradicts the old one.
+4. Never invent IDs. Use only the integer IDs provided for existing memories.
+5. Return the final text that should be stored for ADD and UPDATE events.
+6. Use only these categories: {category_list}
+
+EXISTING MEMORIES:
+{existing_memories}
+
+NEW INSIGHTS:
+{new_insights}
+
+Return structured JSON matching the specified schema.
 """
 
 # Session Reflection (extract insights from completed session)

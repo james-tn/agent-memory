@@ -19,8 +19,21 @@ Requires:
 import os
 from typing import Any, Dict, List, Optional
 
-from azure.cosmos.aio import ContainerProxy, CosmosClient, DatabaseProxy
-from azure.cosmos.exceptions import CosmosResourceNotFoundError
+try:
+    from azure.cosmos.aio import ContainerProxy, CosmosClient, DatabaseProxy
+    from azure.cosmos.exceptions import CosmosResourceNotFoundError
+    HAS_AZURE_COSMOS = True
+except ImportError:
+    HAS_AZURE_COSMOS = False
+    ContainerProxy = CosmosClient = DatabaseProxy = Any
+
+    class CosmosResourceNotFoundError(Exception):
+        def __init__(self, *args, **kwargs):
+            message = kwargs.get("message")
+            if message is not None:
+                super().__init__(message)
+            else:
+                super().__init__(*args)
 
 from memory.db.base import (
     ContainerType,
@@ -34,6 +47,7 @@ VECTOR_SEARCH_FIELDS = {
     ContainerType.INTERACTIONS: [
         "id",
         "user_id",
+        "agent_id",
         "session_id",
         "timestamp",
         "content",
@@ -45,6 +59,7 @@ VECTOR_SEARCH_FIELDS = {
     ContainerType.INSIGHTS: [
         "id",
         "user_id",
+        "agent_id",
         "session_ids",
         "insight_type",
         "insight_text",
@@ -57,12 +72,16 @@ VECTOR_SEARCH_FIELDS = {
         "date_added",
         "last_accessed",
         "access_count",
+        "is_deleted",
+        "deleted_at",
+        "mutation_history",
         "created_at",
         "updated_at",
     ],
     ContainerType.SESSION_SUMMARIES: [
         "id",
         "user_id",
+        "agent_id",
         "start_time",
         "end_time",
         "summary",
@@ -111,6 +130,9 @@ class CosmosDBDatabase(MemoryDatabase):
             credential: Azure credential for AAD auth (used with endpoint)
             vector_dimensions: Dimension of embedding vectors
         """
+        if not HAS_AZURE_COSMOS and cosmos_client is None:
+            raise RuntimeError("CosmosDB backend requires the azure-cosmos package to be installed.")
+
         super().__init__(embedding_provider)
         
         self.database_name = database_name

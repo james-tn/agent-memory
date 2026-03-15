@@ -1,310 +1,214 @@
-# Agent Memory Infrastructure
+# Infrastructure
 
-This directory contains Infrastructure as Code (IaC) for deploying the Agent Memory Service to Azure using Azure Developer CLI (azd) and Bicep.
+This folder contains the `azd` + Bicep deployment for Agent Memory.
 
-## Architecture
+## What Gets Deployed
 
-The infrastructure deploys:
+- Azure OpenAI
+- Azure Cosmos DB
+- Azure AI Search
+- Azure Database for PostgreSQL Flexible Server
+- Azure Container Apps demo resources
+- Optional secure networking for Cosmos connectivity
 
-1. **Azure OpenAI Service**
-   - Chat model: `gpt-4o` (2024-08-06)
-   - Embedding model: `text-embedding-ada-002` (version 2)
+## Deployment Model
 
-2. **Azure Cosmos DB** (NoSQL with Vector Search)
-   - Database: `agent_memory_db`
-   - Containers:
-     - `interactions`: User interaction history with vector embeddings
-     - `session_summaries`: Session summaries with vector search
-     - `insights`: AI-generated insights with semantic search
+PostgreSQL regioning is choice-based:
 
-3. **Azure Container Apps**
-   - Interactive demo application (Streamlit)
-   - VNet integration (optional)
-   - Managed identity authentication
+- Default: PostgreSQL deploys in the same region as `AZURE_LOCATION`
+- Optional override: set `POSTGRES_LOCATION` to deploy PostgreSQL in a different supported region
 
-4. **Networking** (Optional - Secure Mode)
-   - Virtual Network with two subnets
-   - Private endpoints for Cosmos DB
-   - Private DNS zones
-   - Network isolation
-
-5. **Security**
-   - Managed Identity for Container Apps
-   - RBAC for Cosmos DB (data plane + control plane)
-   - No connection strings in Container Apps
-   - Local developer gets same RBAC roles
+The code does not hardcode a separate PostgreSQL fallback region. If your subscription or offer cannot provision PostgreSQL in the main region, choose an alternate supported region explicitly.
 
 ## Prerequisites
 
-- [Azure Developer CLI](https://learn.microsoft.com/azure/developer/azure-developer-cli/install-azd) (azd)
-- [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli)
-- Azure subscription
-- PowerShell 7+ or Bash
-- **For Entra ID Auth**: App registration in Entra ID (can be in different tenant)
+- Azure Developer CLI (`azd`)
+- Azure CLI (`az`)
+- PowerShell 7+ or POSIX shell
+- Python 3.12 for local test and setup scripts
+- Logged-in Azure credentials for the target tenant/subscription
+
+Login example:
+
+```bash
+azd auth login --tenant-id <tenant-id>
+az login --tenant <tenant-id>
+```
 
 ## Quick Start
 
-### 1. Configure Authentication (Optional)
-
-If you want to protect the demo app with Entra ID login:
-
-```powershell
-# Use your existing app registration
-azd env set ENABLE_AUTH true
-azd env set AUTH_CLIENT_ID a72cc4b5-df6b-41c4-b5d2-aca151b6838d
-azd env set AUTH_TENANT_ID 16b3c013-d300-468d-ac64-7eda0820b6d3
-azd env set AUTH_CLIENT_SECRET <client-secret-value>
+```bash
+azd provision
 ```
 
-**Notes**:
-- You must use an Entra ID **Web** app registration configured as a confidential client with a client secret. Without `AUTH_CLIENT_SECRET`, Easy Auth cannot redeem tokens and you will see HTTP 401 after login.
-- Add the redirect URI to your app registration after deployment (shown in output).
+This will:
 
-To disable authentication:
-```powershell
-azd env set ENABLE_AUTH false
-```
+1. run preprovision hooks
+2. provision Azure resources
+3. run postprovision setup for Cosmos, Azure AI Search, and PostgreSQL
 
-### 2. Initialize azd
+If you also want the demo container deployed:
 
-```powershell
-cd agent_memory
-azd init
-```
-
-### 2. Login to Azure
-
-```powershell
-azd auth login
-```
-
-### 3. Deploy Everything
-
-```powershell
+```bash
 azd up
 ```
 
-This single command will:
-1. Run preprovision hooks (get your user object ID, check auth config)
-2. Provision all Azure resources
-3. Build and deploy the demo container
-4. Configure Cosmos DB vector indexes
-5. Output the demo URL and redirect URI (if auth enabled)
+## Same-Region vs Split-Region PostgreSQL
 
-### 4. Configure Redirect URI (If Auth Enabled)
+### Default same-region deployment
 
-After deployment, you'll see output like:
-```
-Add this Redirect URI to your Entra ID app registration:
-https://your-app-name.region.azurecontainerapps.io/.auth/login/aad/callback
+```bash
+azd env set AZURE_LOCATION eastus
+azd provision
 ```
 
-**Add this to your Entra ID app**:
-1. Go to [Azure Portal](https://portal.azure.com)
-2. Navigate to: **Entra ID** > **App registrations** > **contoso_agent_demo**
-3. Click: **Authentication** > **Add a platform** > **Web**
-4. Paste the redirect URI
-5. Check **ID tokens** (if needed)
-6. Save
+With no `POSTGRES_LOCATION` set, PostgreSQL uses `AZURE_LOCATION`.
 
-### 5. Access the Demo
+### Optional split-region PostgreSQL deployment
 
-After deployment completes, azd will output:
-```
-DEMO_APP_URL: https://your-app.region.azurecontainerapps.io
+```bash
+azd env set AZURE_LOCATION eastus
+azd env set POSTGRES_LOCATION westus3
+azd provision
 ```
 
-Open this URL in your browser to interact with the demo.
+Use this only when you need it, such as offer-restricted subscriptions where Flexible Server cannot be created in the main deployment region.
 
-## Deployment Modes
+## Troubleshooting PostgreSQL Region Restrictions
 
-### Standard Mode (Secure with VNet)
+Exact symptom:
 
-Default deployment with private endpoints and VNet integration:
+- `azd provision` fails while creating `Microsoft.DBforPostgreSQL/flexibleServers`
+- the error indicates the server cannot be provisioned in the selected region for the current subscription or offer
 
-```powershell
-azd up
+Remediation:
+
+```bash
+azd env set POSTGRES_LOCATION <supported-region>
+azd provision
 ```
 
-### Simple Mode (Public Endpoints)
+`POSTGRES_SERVER_NAME_SUFFIX` is also available as an escape hatch if a failed deployment leaves behind a soft-deleted or collision-prone server name:
 
-Deploy without VNet for lower cost and simpler setup:
-
-```powershell
-azd env set SECURE_COSMOS false
-azd up
+```bash
+azd env set POSTGRES_SERVER_NAME_SUFFIX retry1
 ```
 
-## Configuration
+That suffix is for recovery only, not a normal required setting.
 
-Environment variables (set with `azd env set <NAME> <VALUE>`):
+## Environment Inputs
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `AZURE_ENV_NAME` | `dev` | Environment name (dev/staging/prod) |
-| `AZURE_LOCATION` | `eastus` | Azure region for resources |
-| `SECURE_COSMOS` | `true` | Enable VNet and private endpoints |
-| `DEMO_IMAGE_NAME` | `agent-memory-demo` | Container image name |
-| `VNET_ADDRESS_PREFIX` | `10.80.0.0/16` | VNet CIDR block |
-| `CONTAINER_APPS_SUBNET_PREFIX` | `10.80.0.0/23` | Container Apps subnet |
-| `PRIVATE_ENDPOINT_SUBNET_PREFIX` | `10.80.2.0/24` | Private endpoint subnet |
-| `ENABLE_AUTH` | `true` | Enable Entra ID authentication |
-| `AUTH_CLIENT_ID` | _(required if auth enabled)_ | Entra ID app client ID |
-| `AUTH_TENANT_ID` | _(optional)_ | Entra ID tenant (if cross-tenant) |
-| `AUTH_CLIENT_SECRET` | _(required if auth enabled)_ | Client secret for the Entra ID app registration |
+Set these with `azd env set <NAME> <VALUE>`.
 
-## Project Structure
+### Core
 
+| Variable | Description |
+| --- | --- |
+| `AZURE_ENV_NAME` | Environment name |
+| `AZURE_LOCATION` | Main Azure deployment region |
+| `SECURE_COSMOS` | Whether to use the secure Cosmos networking path |
+
+### PostgreSQL
+
+| Variable | Description |
+| --- | --- |
+| `POSTGRES_ADMIN_LOGIN` | PostgreSQL admin login |
+| `POSTGRES_ADMIN_PASSWORD` | PostgreSQL admin password |
+| `POSTGRES_LOCATION` | Optional PostgreSQL region override |
+| `POSTGRES_SERVER_NAME_SUFFIX` | Optional suffix for collision recovery |
+| `LOCAL_DEVELOPER_PUBLIC_IP` | Auto-populated for local firewall access |
+
+### Optional auth/demo settings
+
+| Variable | Description |
+| --- | --- |
+| `ENABLE_AUTH` | Enable auth gate / demo auth integration |
+| `AUTH_CLIENT_ID` | Auth app client ID |
+| `AUTH_TENANT_ID` | Auth tenant override |
+| `AUTH_CLIENT_SECRET` | Auth client secret |
+
+## `azd` Outputs You Can Reuse Locally
+
+These values are written into the local `azd` environment and consumed by the runtime and live tests:
+
+| Output | Purpose |
+| --- | --- |
+| `AZURE_AI_SEARCH_ENDPOINT` | Azure AI Search endpoint |
+| `AZURE_AI_SEARCH_API_KEY` | Azure AI Search admin/query key |
+| `AZURE_AI_SEARCH_INDEX_PREFIX` | Stable index prefix |
+| `POSTGRES_HOST` | PostgreSQL server hostname |
+| `POSTGRES_DATABASE` | PostgreSQL database name |
+| `POSTGRES_ADMIN_LOGIN` | PostgreSQL admin login |
+| `POSTGRES_CONNECTION_STRING` | SSL-enabled connection string |
+
+## Hooks and Setup Scripts
+
+### Preprovision
+
+`infra/scripts/preprovision.ps1` and `infra/scripts/preprovision.sh`:
+
+- resolve the local developer object ID for Cosmos RBAC
+- ensure PostgreSQL admin credentials exist
+- detect the developer public IP for local PostgreSQL firewall access
+- preserve `POSTGRES_LOCATION` only if the operator explicitly set it
+
+### Postprovision
+
+`infra/scripts/postprovision.ps1` and `infra/scripts/postprovision.sh` run, in order:
+
+1. Cosmos vector setup
+2. Azure AI Search index setup
+3. PostgreSQL schema and `vector` extension setup
+
+Supporting scripts:
+
+- `infra/scripts/setup-cosmos-vectors.ps1`
+- `infra/scripts/setup-cosmos-vectors.sh`
+- `infra/scripts/setup-search-indexes.ps1`
+- `infra/scripts/setup-search-indexes.sh`
+- `infra/scripts/setup-postgres-schema.ps1`
+- `infra/scripts/setup-postgres-schema.sh`
+
+Each script is intended to be idempotent and safe to re-run after provisioning updates.
+
+## Local Runtime Flow
+
+You can export the `azd` environment into local development after provisioning:
+
+```bash
+azd env get-values > .env.azd
 ```
+
+In this repo, local `.env` remains the primary source for Azure OpenAI endpoint/key pairs, while the `azd` environment is the source of truth for infra-managed backend settings such as Azure AI Search and PostgreSQL outputs.
+
+## Live Validation
+
+After provisioning, the live smoke suite can be run with:
+
+```bash
+pytest -m live -q tests/test_live_azure_backends.py
+```
+
+The current live suite validates:
+
+- direct `AgentMemory` with Azure AI Search
+- direct `AgentMemory` with PostgreSQL
+- FastAPI + `MemoryServiceClient` with Azure AI Search
+- FastAPI + `MemoryServiceClient` with PostgreSQL
+
+## Relevant Files
+
+```text
 infra/
-├── main.bicep                          # Main orchestration file
-├── main.bicepparam                     # Parameter mappings from azd
-├── modules/
-│   ├── openai.bicep                    # Azure OpenAI deployment
-│   ├── cosmosdb.bicep                  # Cosmos DB with containers
-│   ├── container-registry.bicep        # Container image storage
-│   ├── log-analytics.bicep             # Monitoring workspace
-│   ├── network.bicep                   # VNet, subnets, DNS
-│   ├── container-apps-environment.bicep # Container Apps env
-│   ├── managed-identity.bicep          # User-assigned identity
-│   ├── cosmos-roles.bicep              # RBAC assignments
-│   └── demo-app.bicep                  # Demo Container App
-└── scripts/
-    ├── preprovision.ps1                # Get user object ID
-    └── setup-cosmos-vectors.ps1        # Configure vector indexes
+  main.bicep
+  main.bicepparam
+  modules/
+    azure-search.bicep
+    postgresql.bicep
+  scripts/
+    preprovision.*
+    postprovision.*
+    setup-cosmos-vectors.*
+    setup-search-indexes.*
+    setup-postgres-schema.*
 ```
-
-## Manual Steps
-
-### Vector Index Configuration
-
-Due to Bicep API limitations, vector indexes are configured via post-deployment script. The `setup-cosmos-vectors.ps1` script runs automatically after `azd up`.
-
-If needed, run manually:
-
-```powershell
-.\infra\scripts\setup-cosmos-vectors.ps1
-```
-
-### Local Development Setup
-
-After deployment, you can run the agent memory service locally with the same permissions:
-
-1. The preprovision script assigns Cosmos DB roles to your user account
-2. Use `azd env get-values` to get connection strings
-3. Set environment variables in your local `.env` file
-
-```powershell
-azd env get-values > .env
-```
-
-## Troubleshooting
-
-### Role Assignment Errors
-
-If Cosmos DB role assignments fail during deployment:
-
-```powershell
-# Get your object ID
-$objectId = az ad signed-in-user show --query id -o tsv
-
-# Manually assign roles
-az cosmosdb sql role assignment create `
-  --account-name <cosmos-account-name> `
-  --resource-group <resource-group> `
-  --scope "/" `
-  --principal-id $objectId `
-  --role-definition-id 00000000-0000-0000-0000-000000000002
-```
-
-### Container Build Issues
-
-If the demo container fails to build:
-
-```powershell
-# Build and push manually
-azd deploy demo
-```
-
-### Vector Search Not Working
-
-Vector indexes may need manual configuration:
-
-1. Go to Azure Portal → Cosmos DB → Data Explorer
-2. Select container → Settings → Indexing Policy
-3. Add vector index policy under "Vector Indexes" section
-
-## Cleanup
-
-Remove all deployed resources:
-
-```powershell
-azd down
-```
-
-Add `--purge` to also delete soft-deleted resources:
-
-```powershell
-azd down --purge
-```
-
-## Cost Estimation
-
-### Standard Mode (with VNet)
-- Azure OpenAI: ~$0.03/1K tokens
-- Cosmos DB: ~$24/month (1000 RU/s autoscale)
-- Container Apps: ~$15/month (0-3 replicas)
-- Networking: ~$10/month (private endpoints)
-- **Total**: ~$50-100/month (usage-dependent)
-
-### Simple Mode (public endpoints)
-- Azure OpenAI: ~$0.03/1K tokens
-- Cosmos DB: ~$24/month
-- Container Apps: ~$15/month
-- **Total**: ~$40-80/month
-
-## Security Considerations
-
-### Standard Mode
-✅ Private endpoints for Cosmos DB
-✅ Network isolation via VNet
-✅ Managed identity (no connection strings)
-✅ RBAC at data plane and control plane
-✅ Entra ID authentication for users (optional)
-
-### Simple Mode
-⚠️ Public endpoints for Cosmos DB (firewall recommended)
-✅ Managed identity option available
-✅ RBAC at data plane and control plane
-✅ Entra ID authentication for users (optional)
-
-## Authentication Details
-
-When `ENABLE_AUTH=true`:
-- **Easy Auth** (Container Apps built-in authentication)
-- Users must sign in with Entra ID before accessing demo
-- Supports cross-tenant authentication
-- No code changes required
-- Automatic token validation
-- Session management included
-
-Authentication Flow:
-1. User accesses demo URL
-2. Redirected to Microsoft login
-3. After successful auth, redirected back to app
-4. User identity available in request headers (X-MS-CLIENT-PRINCIPAL)
-
-## Next Steps
-
-1. **Configure vector indexes**: Run post-deployment script if not automatic
-2. **Test the demo**: Open the demo URL and create test interactions
-3. **Monitor costs**: Check Azure Portal cost management
-4. **Scale as needed**: Adjust Container Apps replicas and Cosmos DB throughput
-5. **Add CI/CD**: Configure GitHub Actions with azd for automated deployments
-
-## Support
-
-- [Azure Developer CLI Documentation](https://learn.microsoft.com/azure/developer/azure-developer-cli/)
-- [Bicep Documentation](https://learn.microsoft.com/azure/azure-resource-manager/bicep/)
-- [Cosmos DB Vector Search](https://learn.microsoft.com/azure/cosmos-db/nosql/vector-search)
-- [Container Apps Documentation](https://learn.microsoft.com/azure/container-apps/)

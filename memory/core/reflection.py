@@ -12,7 +12,7 @@ Uses the MemoryDatabase interface to work with any backend
 (SQLite, CosmosDB, PostgreSQL).
 """
 
-from typing import List, Dict, Optional, Any, Type
+from typing import List, Dict, Optional, Any, Type, Literal
 from datetime import datetime, timezone
 import uuid
 from dataclasses import dataclass
@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 
 from memory.db.base import ContainerType, MemoryDatabase
 from memory.core.llm_json import call_llm_with_json
+from memory.models import InsightMutationRecord
 from memory.providers.embedding import EmbeddingProvider
 
 
@@ -57,12 +58,35 @@ class LongTermProfileOutput(BaseModel):
     insight_count: int = Field(description="Number of session insights synthesized into this profile")
 
 
+class ConflictResolutionAction(BaseModel):
+    """A single conflict-resolution action."""
+
+    id: Optional[str] = Field(default=None, description="Integer ID of the existing memory for UPDATE/DELETE/NONE")
+    text: Optional[str] = Field(default=None, description="Final insight text for ADD/UPDATE")
+    event: Literal["ADD", "UPDATE", "DELETE", "NONE"]
+    category: Optional[str] = Field(default=None, description="Insight category for ADD/UPDATE")
+    confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    importance: Optional[str] = Field(default=None, description="Importance level for ADD/UPDATE")
+    rationale: Optional[str] = Field(default=None, description="Short explanation of the action")
+    old_memory: Optional[str] = Field(default=None, description="Existing memory text the action refers to")
+
+
+class ConflictResolutionResult(BaseModel):
+    """Structured output for conflict resolution."""
+
+    memory: List[ConflictResolutionAction] = Field(default_factory=list)
+
+
 # ==================== Configuration ====================
 
 @dataclass
 class ReflectionConfig:
     """Configuration for reflection process."""
     PROCESSING_MODEL: str = "gpt-4o-mini"  # Model for analysis
+    insight_categories: List[str] = None
+    custom_extraction_prompt: Optional[str] = None
+    custom_conflict_resolution_prompt: Optional[str] = None
+    max_conflict_candidates: int = 5
 
 
 # ==================== Reflection Class ====================
@@ -82,6 +106,7 @@ class Reflection:
     
     def __init__(
         self,
+        agent_id: str,
         database: MemoryDatabase,
         embedding_provider: EmbeddingProvider,
         chat_client: Any,
@@ -96,10 +121,19 @@ class Reflection:
             chat_client: Chat client for LLM calls
             config: Configuration settings (uses defaults if not provided)
         """
+        self.agent_id = agent_id
         self.database = database
         self.embedding_provider = embedding_provider
         self.chat_client = chat_client
         self.config = config or ReflectionConfig()
+        if not self.config.insight_categories:
+            self.config.insight_categories = [
+                "preferences",
+                "knowledge_level",
+                "goals",
+                "behavior_patterns",
+                "learning_progress",
+            ]
     
     def _call_llm_with_json(
         self,
@@ -298,7 +332,7 @@ class Reflection:
         """Get all interactions from a session."""
         return await self.database.query(
             container=ContainerType.INTERACTIONS,
-            filters={"user_id": user_id, "session_id": session_id},
+            filters={"user_id": user_id, "agent_id": self.agent_id, "session_id": session_id},
             order_by="timestamp"
         )
     
@@ -308,15 +342,16 @@ class Reflection:
         category: Optional[str] = None
     ) -> List[Dict]:
         """Get existing insights for a user."""
-        filters = {"user_id": user_id}
+        filters = {"user_id": user_id, "agent_id": self.agent_id}
         if category:
             filters["category"] = category
         
-        return await self.database.query(
+        insights = await self.database.query(
             container=ContainerType.INSIGHTS,
             filters=filters,
-            order_by="-last_updated"
+            order_by="-updated_at"
         )
+        return [insight for insight in insights if self._is_active_insight(insight)]
     
     def _build_reflection_context(
         self,
@@ -356,6 +391,49 @@ class Reflection:
             parts.append("")
         
         return "\n".join(parts)
+
+    def _category_instructions(self) -> str:
+        """Render configured insight categories for prompt templates."""
+        return "\n".join(
+            f"- **{category}**: insights relevant to {category.replace('_', ' ')}"
+            for category in self.config.insight_categories
+        )
+
+    def _format_prompt(self, template: str, **kwargs: Any) -> str:
+        """Format a prompt template with best-effort placeholder support."""
+        try:
+            return template.format(**kwargs)
+        except KeyError:
+            return template
+
+    def _is_active_insight(self, insight: Dict[str, Any]) -> bool:
+        """Return True for active, searchable insight documents."""
+        return (
+            insight.get("insight_type") in {"session", "long_term_item"}
+            and not insight.get("is_deleted", False)
+        )
+
+    def _make_mutation_record(
+        self,
+        *,
+        event: str,
+        session_id: Optional[str],
+        old_text: Optional[str],
+        new_text: Optional[str],
+        rationale: Optional[str],
+    ) -> Dict[str, Any]:
+        return InsightMutationRecord(
+            event=event,
+            timestamp=self._utcnow_iso(),
+            session_id=session_id,
+            old_text=old_text,
+            new_text=new_text,
+            rationale=rationale,
+        ).model_dump()
+
+    def _longterm_doc_id(self, user_id: str) -> str:
+        """Build the scoped long-term profile document ID."""
+        return f"longterm-{self.agent_id}-{user_id}"
     
     async def _generate_comprehensive_analysis(self, session_content: str) -> ComprehensiveSessionAnalysis:
         """
@@ -368,8 +446,14 @@ class Reflection:
             ComprehensiveSessionAnalysis with summary, topics, and insights
         """
         from memory.prompts import COMPREHENSIVE_SESSION_ANALYSIS_PROMPT
-        
-        prompt = COMPREHENSIVE_SESSION_ANALYSIS_PROMPT.format(session_content=session_content)
+
+        prompt_template = self.config.custom_extraction_prompt or COMPREHENSIVE_SESSION_ANALYSIS_PROMPT
+        prompt = self._format_prompt(
+            prompt_template,
+            session_content=session_content,
+            category_instructions=self._category_instructions(),
+            category_list=", ".join(self.config.insight_categories),
+        )
         
         try:
             analysis = self._call_llm_with_json(
@@ -388,6 +472,172 @@ class Reflection:
             insights=[],
             has_meaningful_insights=False
         )
+
+    async def reconcile_session_insights(
+        self,
+        user_id: str,
+        session_id: str,
+        extracted_insights: List[Dict[str, Any]],
+    ) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+        """Reconcile extracted insights against existing active memories."""
+        normalized = [
+            insight if isinstance(insight, SessionInsight) else SessionInsight(**insight)
+            for insight in extracted_insights
+            if insight
+        ]
+        if not normalized:
+            return [], []
+
+        candidates = await self._get_conflict_candidates(user_id, normalized)
+        actions = await self._resolve_conflicts(candidates, normalized)
+        stored_docs: List[Dict[str, Any]] = []
+        mutation_records: List[Dict[str, Any]] = []
+        candidate_by_id = {candidate["id"]: candidate for candidate in candidates}
+
+        for action in actions:
+            if action.event == "NONE":
+                if action.id and action.id in candidate_by_id:
+                    mutation_records.append(
+                        self._make_mutation_record(
+                            event="NONE",
+                            session_id=session_id,
+                            old_text=candidate_by_id[action.id].get("insight_text"),
+                            new_text=candidate_by_id[action.id].get("insight_text"),
+                            rationale=action.rationale,
+                        )
+                    )
+                continue
+
+            if action.event == "ADD":
+                stored_doc = await self._create_session_insight_doc(
+                    user_id=user_id,
+                    session_id=session_id,
+                    insight=SessionInsight(
+                        insight_text=action.text or "",
+                        category=action.category or normalized[0].category,
+                        confidence=action.confidence if action.confidence is not None else normalized[0].confidence,
+                        importance=action.importance or normalized[0].importance,
+                    ),
+                    rationale=action.rationale,
+                )
+                stored_docs.append(stored_doc)
+                mutation_records.append(stored_doc["mutation_history"][-1])
+                continue
+
+            existing_doc = candidate_by_id.get(action.id or "")
+            if not existing_doc:
+                continue
+
+            if action.event == "UPDATE":
+                updated_doc = await self._update_existing_insight_doc(
+                    existing_doc,
+                    session_id=session_id,
+                    text=action.text or existing_doc.get("insight_text", ""),
+                    category=action.category or existing_doc.get("category", "general"),
+                    confidence=action.confidence if action.confidence is not None else existing_doc.get("confidence", 0.5),
+                    importance=action.importance or existing_doc.get("importance", "medium"),
+                    rationale=action.rationale,
+                )
+                stored_docs.append(updated_doc)
+                mutation_records.append(updated_doc["mutation_history"][-1])
+                continue
+
+            if action.event == "DELETE":
+                deleted_doc = await self._soft_delete_insight_doc(
+                    existing_doc,
+                    session_id=session_id,
+                    rationale=action.rationale,
+                )
+                mutation_records.append(deleted_doc["mutation_history"][-1])
+
+        return stored_docs, mutation_records
+
+    async def _get_conflict_candidates(
+        self,
+        user_id: str,
+        extracted_insights: List[SessionInsight],
+    ) -> List[Dict[str, Any]]:
+        """Find existing insights that could conflict with new ones."""
+        candidates: Dict[str, Dict[str, Any]] = {}
+
+        for insight in extracted_insights:
+            embedding = self.embedding_provider.get_embedding(insight.insight_text)
+            results = await self.database.vector_search(
+                container=ContainerType.INSIGHTS,
+                query_embedding=embedding,
+                vector_field="insight_vector",
+                top_k=self.config.max_conflict_candidates,
+                filters={"user_id": user_id, "agent_id": self.agent_id},
+            )
+            for result in results:
+                doc = result.document
+                if not self._is_active_insight(doc):
+                    continue
+                candidates[doc["id"]] = doc
+
+        return list(candidates.values())
+
+    async def _resolve_conflicts(
+        self,
+        existing_candidates: List[Dict[str, Any]],
+        extracted_insights: List[SessionInsight],
+    ) -> List[ConflictResolutionAction]:
+        """Use the LLM to reconcile new insights with existing ones."""
+        if not extracted_insights:
+            return []
+
+        from memory.prompts import CONFLICT_RESOLUTION_PROMPT
+
+        id_map = {str(index): doc for index, doc in enumerate(existing_candidates)}
+        existing_lines = []
+        for mapped_id, doc in id_map.items():
+            existing_lines.append(
+                f"[{mapped_id}] {doc.get('insight_text', '')} | category={doc.get('category', 'general')} | "
+                f"importance={doc.get('importance', 'medium')} | confidence={doc.get('confidence', 0.5)}"
+            )
+        new_lines = []
+        for index, insight in enumerate(extracted_insights, start=1):
+            new_lines.append(
+                f"[N{index}] {insight.insight_text} | category={insight.category} | "
+                f"importance={insight.importance} | confidence={insight.confidence}"
+            )
+
+        prompt_template = self.config.custom_conflict_resolution_prompt or CONFLICT_RESOLUTION_PROMPT
+        prompt = self._format_prompt(
+            prompt_template,
+            existing_memories="\n".join(existing_lines) if existing_lines else "(none)",
+            new_insights="\n".join(new_lines),
+            category_list=", ".join(self.config.insight_categories),
+        )
+
+        try:
+            result = self._call_llm_with_json(
+                system_prompt="You reconcile memory insights and return structured mutation actions.",
+                user_prompt=prompt,
+                output_model=ConflictResolutionResult,
+            )
+            actions = result.memory
+        except Exception as exc:
+            print(f"  Error resolving insight conflicts: {exc}")
+            actions = []
+
+        if not actions:
+            return [
+                ConflictResolutionAction(
+                    event="ADD",
+                    text=insight.insight_text,
+                    category=insight.category,
+                    confidence=insight.confidence,
+                    importance=insight.importance,
+                    rationale="Fallback add after conflict resolution failure.",
+                )
+                for insight in extracted_insights
+            ]
+
+        for action in actions:
+            if action.id is not None and action.id in id_map:
+                action.id = id_map[action.id]["id"]
+        return actions
     
     async def _synthesize_insights(
         self,
@@ -430,6 +680,7 @@ class Reflection:
         insight_doc = {
             "id": insight_id,
             "user_id": user_id,
+            "agent_id": self.agent_id,
             "insight_text": insight.insight_text,
             "insight_vector": embedding,
             "category": insight.category,
@@ -437,8 +688,11 @@ class Reflection:
             "importance": insight.importance,
             "source_session_id": session_id,
             "is_synthesized": is_synthesized,
+            "is_deleted": False,
+            "deleted_at": None,
+            "mutation_history": [],
             "created_at": self._utcnow_iso(),
-            "last_updated": self._utcnow_iso()
+            "updated_at": self._utcnow_iso()
         }
         
         result = await self.database.upsert(
@@ -447,6 +701,131 @@ class Reflection:
             partition_key=user_id
         )
         return result
+
+    async def _create_session_insight_doc(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        insight: SessionInsight,
+        rationale: Optional[str],
+    ) -> Dict[str, Any]:
+        """Create and persist a new session insight document."""
+        now = self._utcnow_iso()
+        mutation_history = [
+            self._make_mutation_record(
+                event="ADD",
+                session_id=session_id,
+                old_text=None,
+                new_text=insight.insight_text,
+                rationale=rationale,
+            )
+        ]
+        doc = {
+            "id": str(uuid.uuid4()),
+            "user_id": user_id,
+            "agent_id": self.agent_id,
+            "session_ids": [session_id],
+            "insight_type": "session",
+            "insight_text": insight.insight_text,
+            "insight_vector": self.embedding_provider.get_embedding(insight.insight_text),
+            "category": insight.category,
+            "confidence": insight.confidence,
+            "importance": insight.importance,
+            "processed": False,
+            "is_deleted": False,
+            "deleted_at": None,
+            "mutation_history": mutation_history,
+            "created_at": now,
+            "updated_at": now,
+        }
+        return await self.database.upsert(
+            container=ContainerType.INSIGHTS,
+            document=doc,
+            partition_key=user_id,
+        )
+
+    async def _update_existing_insight_doc(
+        self,
+        existing_doc: Dict[str, Any],
+        *,
+        session_id: str,
+        text: str,
+        category: str,
+        confidence: float,
+        importance: str,
+        rationale: Optional[str],
+    ) -> Dict[str, Any]:
+        """Update an existing insight document in place."""
+        updated_doc = dict(existing_doc)
+        updated_doc["insight_text"] = text
+        updated_doc["insight_vector"] = self.embedding_provider.get_embedding(text)
+        updated_doc["category"] = category
+        updated_doc["confidence"] = confidence
+        updated_doc["importance"] = importance
+        updated_doc["processed"] = False
+        updated_doc["is_deleted"] = False
+        updated_doc["deleted_at"] = None
+        updated_doc["updated_at"] = self._utcnow_iso()
+
+        if updated_doc.get("insight_type") == "session":
+            session_ids = list(updated_doc.get("session_ids", []))
+            if session_id not in session_ids:
+                session_ids.append(session_id)
+            updated_doc["session_ids"] = session_ids
+        elif updated_doc.get("insight_type") == "long_term_item":
+            source_session_ids = list(updated_doc.get("source_session_ids", []))
+            if session_id not in source_session_ids:
+                source_session_ids.append(session_id)
+            updated_doc["source_session_ids"] = source_session_ids
+
+        mutation_history = list(updated_doc.get("mutation_history", []))
+        mutation_history.append(
+            self._make_mutation_record(
+                event="UPDATE",
+                session_id=session_id,
+                old_text=existing_doc.get("insight_text"),
+                new_text=text,
+                rationale=rationale,
+            )
+        )
+        updated_doc["mutation_history"] = mutation_history
+
+        return await self.database.upsert(
+            container=ContainerType.INSIGHTS,
+            document=updated_doc,
+            partition_key=updated_doc["user_id"],
+        )
+
+    async def _soft_delete_insight_doc(
+        self,
+        existing_doc: Dict[str, Any],
+        *,
+        session_id: str,
+        rationale: Optional[str],
+    ) -> Dict[str, Any]:
+        """Soft-delete an insight document to preserve audit history."""
+        deleted_doc = dict(existing_doc)
+        deleted_doc["is_deleted"] = True
+        deleted_doc["deleted_at"] = self._utcnow_iso()
+        deleted_doc["updated_at"] = deleted_doc["deleted_at"]
+        deleted_doc["processed"] = True
+        mutation_history = list(deleted_doc.get("mutation_history", []))
+        mutation_history.append(
+            self._make_mutation_record(
+                event="DELETE",
+                session_id=session_id,
+                old_text=existing_doc.get("insight_text"),
+                new_text=None,
+                rationale=rationale,
+            )
+        )
+        deleted_doc["mutation_history"] = mutation_history
+        return await self.database.upsert(
+            container=ContainerType.INSIGHTS,
+            document=deleted_doc,
+            partition_key=deleted_doc["user_id"],
+        )
     
     async def update_longterm_insight(self, user_id: str) -> Optional[Dict[str, Any]]:
         """
@@ -486,7 +865,7 @@ class Reflection:
             print(f"  ℹ No profile generated from synthesis")
             return None
         
-        # 4. Upsert longterm-{user_id} document
+        # 4. Upsert longterm profile document
         longterm_doc = await self._upsert_longterm_document(
             user_id,
             profile_output,
@@ -509,7 +888,7 @@ class Reflection:
         Returns:
             Formatted profile text, or None if no long-term insight exists
         """
-        longterm_id = f"longterm-{user_id}"
+        longterm_id = self._longterm_doc_id(user_id)
         
         doc = await self.database.get_by_id(
             container=ContainerType.INSIGHTS,
@@ -517,23 +896,23 @@ class Reflection:
             partition_key=user_id
         )
         
-        if doc:
+        if doc and doc.get("agent_id", "default") == self.agent_id and not doc.get("is_deleted", False):
             return doc.get("insight_text", "")
-        return None
+        return await self.synthesize_longterm_summary(user_id)
     
     async def _get_unprocessed_insights(self, user_id: str) -> List[Dict]:
         """Fetch all unprocessed session insights for a user."""
         # Get all session insights for the user
         all_insights = await self.database.query(
             container=ContainerType.INSIGHTS,
-            filters={"user_id": user_id, "insight_type": "session"},
+            filters={"user_id": user_id, "agent_id": self.agent_id, "insight_type": "session"},
             order_by="created_at"
         )
         
         # Filter for unprocessed (processed is not defined or False)
         return [
             insight for insight in all_insights
-            if not insight.get("processed", False)
+            if not insight.get("processed", False) and not insight.get("is_deleted", False)
         ]
     
     async def _synthesize_longterm_profile(
@@ -594,7 +973,7 @@ class Reflection:
         source_insight_ids: List[str]
     ) -> Dict[str, Any]:
         """Upsert the long-term insight document for a user."""
-        longterm_id = f"longterm-{user_id}"
+        longterm_id = self._longterm_doc_id(user_id)
         
         # Generate embedding for the profile text
         embedding = self.embedding_provider.get_embedding(profile_output.profile_text)
@@ -611,9 +990,12 @@ class Reflection:
             existing_doc["insight_text"] = profile_output.profile_text
             existing_doc["insight_vector"] = embedding
             existing_doc["confidence"] = profile_output.confidence
+            existing_doc["agent_id"] = self.agent_id
             existing_doc["source_insight_ids"] = list(set(
                 existing_doc.get("source_insight_ids", []) + source_insight_ids
             ))
+            existing_doc["is_deleted"] = False
+            existing_doc["deleted_at"] = None
             existing_doc["updated_at"] = self._utcnow_iso()
             
             result = await self.database.upsert(
@@ -628,11 +1010,15 @@ class Reflection:
             longterm_doc = {
                 "id": longterm_id,
                 "user_id": user_id,
+                "agent_id": self.agent_id,
                 "insight_type": "long_term",
                 "insight_text": profile_output.profile_text,
                 "insight_vector": embedding,
                 "confidence": profile_output.confidence,
                 "source_insight_ids": source_insight_ids,
+                "is_deleted": False,
+                "deleted_at": None,
+                "mutation_history": [],
                 "created_at": self._utcnow_iso(),
                 "updated_at": self._utcnow_iso()
             }
@@ -778,6 +1164,7 @@ class Reflection:
             item = LongTermInsightItem(
                 id=id_gen.next_id(),
                 user_id=user_id,
+                agent_id=self.agent_id,
                 insight_text=insight.insight_text,
                 category=insight.category,
                 confidence=insight.confidence,
@@ -815,12 +1202,14 @@ class Reflection:
         # Note: order_by uses 'created_at' which exists in the schema
         items = await self.database.query(
             container=ContainerType.INSIGHTS,
-            filters={"user_id": user_id, "insight_type": "long_term_item"},
+            filters={"user_id": user_id, "agent_id": self.agent_id, "insight_type": "long_term_item"},
             order_by="-created_at"  # Use created_at which is guaranteed to exist
         )
         
         result = []
         for item_data in items:
+            if item_data.get("is_deleted", False):
+                continue
             try:
                 result.append(LongTermInsightItem.from_dict(item_data))
             except Exception as e:

@@ -7,6 +7,17 @@ from typing import Optional, List, Literal
 from pydantic import BaseModel, Field
 
 
+class InsightMutationRecord(BaseModel):
+    """Audit record for an insight mutation."""
+
+    event: Literal["ADD", "UPDATE", "DELETE", "NONE"]
+    timestamp: str = Field(..., description="ISO 8601 timestamp")
+    session_id: Optional[str] = Field(None, description="Session that triggered the mutation")
+    old_text: Optional[str] = Field(None, description="Previous insight text")
+    new_text: Optional[str] = Field(None, description="New insight text")
+    rationale: Optional[str] = Field(None, description="Short explanation for the mutation")
+
+
 class InteractionMetadata(BaseModel):
     """Metadata for interaction documents."""
     mentioned_topics: List[str] = Field(default_factory=list, description="Key topics discussed")
@@ -19,6 +30,7 @@ class InteractionDocument(BaseModel):
     """
     id: str = Field(..., description="Unique identifier (UUID)")
     user_id: str = Field(..., description="User identifier")
+    agent_id: str = Field(..., description="Agent identifier")
     session_id: str = Field(..., description="Session identifier")
     timestamp: str = Field(..., description="ISO 8601 timestamp of first turn")
     content: str = Field(..., description="Flattened conversation: 'user: ...\\nassistant: ...'")
@@ -34,6 +46,7 @@ class SessionInsightDocument(BaseModel):
     """
     id: str = Field(..., description="Unique identifier (UUID)")
     user_id: str = Field(..., description="User identifier")
+    agent_id: str = Field(..., description="Agent identifier")
     insight_type: Literal["session"] = "session"
     session_ids: List[str] = Field(..., description="Source session IDs")
     insight_text: str = Field(..., description="The extracted insight")
@@ -43,6 +56,9 @@ class SessionInsightDocument(BaseModel):
     category: str = Field(..., description="Insight category (e.g., demographics, financial_goals)")
     reflection_flag: Literal["insight", "no-insight"] = "insight"
     processed: bool = Field(default=False, description="Whether incorporated into long-term insight")
+    is_deleted: bool = Field(default=False, description="Soft-delete flag for superseded insights")
+    deleted_at: Optional[str] = Field(None, description="ISO 8601 timestamp when insight was deleted")
+    mutation_history: List[InsightMutationRecord] = Field(default_factory=list, description="Mutation audit trail")
     created_at: str = Field(..., description="ISO 8601 timestamp")
     updated_at: str = Field(..., description="ISO 8601 timestamp")
 
@@ -54,6 +70,7 @@ class LongTermInsightDocument(BaseModel):
     """
     id: str = Field(..., description="Format: longterm-{user_id}")
     user_id: str = Field(..., description="User identifier")
+    agent_id: str = Field(..., description="Agent identifier")
     insight_type: Literal["long_term"] = "long_term"
     insight_text: str = Field(..., description="Comprehensive user profile")
     insight_vector: List[float] = Field(..., description="Embedding vector for insight")
@@ -61,6 +78,9 @@ class LongTermInsightDocument(BaseModel):
     importance: Optional[str] = None
     category: Optional[str] = None
     source_insight_ids: List[str] = Field(default_factory=list, description="Session insight IDs used")
+    is_deleted: bool = Field(default=False, description="Soft-delete flag")
+    deleted_at: Optional[str] = Field(None, description="ISO 8601 timestamp when deleted")
+    mutation_history: List[InsightMutationRecord] = Field(default_factory=list, description="Mutation audit trail")
     created_at: str = Field(..., description="ISO 8601 timestamp")
     updated_at: str = Field(..., description="ISO 8601 timestamp")
 
@@ -71,6 +91,7 @@ class SessionSummaryDocument(BaseModel):
     """
     id: str = Field(..., description="Session UUID")
     user_id: str = Field(..., description="User identifier")
+    agent_id: str = Field(..., description="Agent identifier")
     start_time: str = Field(..., description="ISO 8601 timestamp")
     end_time: Optional[str] = Field(None, description="ISO 8601 timestamp")
     summary: str = Field(..., description="Session summary")

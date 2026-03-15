@@ -222,6 +222,51 @@ def test_postgresql_backend_hybrid_search_and_filter_validation(monkeypatch):
         raise AssertionError("Expected invalid filter keys to be rejected")
 
 
+def test_postgresql_backend_partial_session_summary_upsert_preserves_required_fields(monkeypatch):
+    _install_asyncpg_stub()
+    backend_module = importlib.import_module("memory.db.postgresql_backend")
+    PostgreSQLDatabase = backend_module.PostgreSQLDatabase
+
+    pool = FakePool()
+    backend = PostgreSQLDatabase(pool=pool, vector_dimensions=4)
+    pool.conn.row = {
+        "id": "summary-1",
+        "user_id": "user-1",
+        "agent_id": "agent-a",
+        "start_time": "2026-03-14T00:00:00+00:00",
+        "end_time": "2026-03-14T00:30:00+00:00",
+        "summary": "old summary",
+        "summary_vector": "[0.1,0.2,0.3,0.4]",
+        "key_topics": '["planning"]',
+        "extracted_insights": '[]',
+        "status": "completed",
+        "reflection_status": "completed",
+        "cumulative_summary": "old cumulative summary",
+        "turn_count": 4,
+        "created_at": "2026-03-14T00:00:00+00:00",
+        "updated_at": "2026-03-14T00:30:00+00:00",
+    }
+
+    asyncio.run(
+        backend.upsert(
+            ContainerType.SESSION_SUMMARIES,
+            {
+                "id": "summary-1",
+                "summary": "new summary",
+                "updated_at": "2026-03-15T00:00:00+00:00",
+            },
+        )
+    )
+
+    upsert_sql, upsert_args = pool.conn.executed[-1]
+    assert "ON CONFLICT (id) DO UPDATE" in upsert_sql
+    assert "user-1" in upsert_args
+    assert "agent-a" in upsert_args
+    assert "2026-03-14T00:00:00+00:00" in upsert_args
+    assert "new summary" in upsert_args
+    assert "2026-03-15T00:00:00+00:00" in upsert_args
+
+
 def test_factory_creates_postgresql_backend(monkeypatch):
     _install_asyncpg_stub()
     backend = create_database(

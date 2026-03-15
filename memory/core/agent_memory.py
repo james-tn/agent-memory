@@ -251,6 +251,7 @@ class AgentMemory(BaseContextProvider):
         
         # Store pre-created database if provided
         self._database = database
+        self._owns_database = database is None
         self._orchestrator: Optional[MemoryOrchestrator] = None
     
     async def _ensure_initialized(self) -> None:
@@ -541,7 +542,7 @@ class AgentMemory(BaseContextProvider):
     async def close(self) -> None:
         """Close database connection and cleanup resources."""
         if self._orchestrator:
-            await self._orchestrator.close()
+            await self._orchestrator.close(close_database=self._owns_database)
         self._orchestrator = None
         self._initialized = False
     

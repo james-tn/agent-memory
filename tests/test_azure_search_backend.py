@@ -79,6 +79,7 @@ def test_azure_search_backend_initializes_indexes():
     backend = _backend()
 
     asyncio.run(backend.initialize())
+    asyncio.run(backend.initialize())
 
     assert len(backend._index_client.indexes) == 3
     assert sorted(index.name for index in backend._index_client.indexes) == [
@@ -188,5 +189,5 @@ def test_factory_creates_azure_ai_search_backend():
         vector_dimensions=8,
     )
 
-    assert isinstance(backend, AzureAISearchDatabase)
+    assert backend.__class__.__name__ == "AzureAISearchDatabase"
     assert backend.get_capabilities().backend_name == "azure_ai_search"

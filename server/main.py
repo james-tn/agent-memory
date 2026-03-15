@@ -24,6 +24,9 @@ from openai import AzureOpenAI
 
 from memory import AgentMemory, AgentMemoryConfig
 from memory.db import DatabaseType
+from memory.core.orchestrator import MemoryOrchestrator
+from memory.db.base import ContainerType, MemoryDatabase
+from memory.db.factory import create_database
 from server.config import get_config
 
 # Configure logging
@@ -169,14 +172,37 @@ class SessionPool:
         self.database_name = database_name
         self.max_sessions = max_sessions
         self.session_ttl = timedelta(minutes=session_ttl_minutes)
+        self._shared_database: Optional[MemoryDatabase] = None
         
         # Active sessions: {(user_id, agent_id, session_id): {"memory": AgentMemory, "last_access": datetime}}
         self._sessions: Dict[tuple, Dict[str, Any]] = {}
         self._lock = asyncio.Lock()
 
-    def _build_memory(self, user_id: str, agent_id: str, session_id: Optional[str]) -> AgentMemory:
-        """Construct an AgentMemory instance with the server's shared config."""
-        config = AgentMemoryConfig(
+    async def initialize(self) -> None:
+        """Create and initialize one shared backend instance."""
+        if self._shared_database is not None:
+            return
+
+        db_kwargs: Dict[str, Any] = {}
+        if self.db_type == DatabaseType.SQLITE:
+            db_kwargs["db_path"] = self.db_path
+        elif self.db_type == DatabaseType.COSMOSDB:
+            db_kwargs["connection_string"] = self.connection_string
+            db_kwargs["endpoint"] = self.cosmos_endpoint
+            db_kwargs["database_name"] = self.database_name
+        elif self.db_type == DatabaseType.AZURE_AI_SEARCH:
+            db_kwargs["endpoint"] = self.search_endpoint
+            db_kwargs["api_key"] = self.search_api_key
+            db_kwargs["index_prefix"] = self.search_index_prefix
+        elif self.db_type == DatabaseType.POSTGRESQL:
+            db_kwargs["connection_string"] = self.postgres_connection_string
+
+        self._shared_database = create_database(db_type=self.db_type, **db_kwargs)
+        await self._shared_database.initialize()
+
+    def _build_memory_config(self) -> AgentMemoryConfig:
+        """Create the shared AgentMemory configuration used by server-owned instances."""
+        return AgentMemoryConfig(
             auto_manage_sessions=False,
             include_longterm_insights=True,
             include_recent_sessions=True,
@@ -184,11 +210,16 @@ class SessionPool:
             database_name=self.database_name,
         )
 
+    def _build_memory(self, user_id: str, agent_id: str, session_id: Optional[str]) -> AgentMemory:
+        """Construct an AgentMemory instance with the server's shared config."""
+        config = self._build_memory_config()
+
         return AgentMemory(
             user_id=user_id,
             agent_id=agent_id,
             openai_client=self.openai_client,
             db_type=self.db_type,
+            database=self._shared_database,
             db_path=self.db_path,
             connection_string=self.connection_string,
             cosmos_endpoint=self.cosmos_endpoint,
@@ -292,6 +323,65 @@ class SessionPool:
     async def create_ephemeral(self, user_id: str, agent_id: str, session_id: Optional[str] = None) -> AgentMemory:
         """Create a lightweight memory instance that is not pooled."""
         return self._build_memory(user_id, agent_id, session_id)
+
+    def _build_readonly_orchestrator(self, user_id: str, agent_id: str) -> MemoryOrchestrator:
+        """Create a request-scoped orchestrator that reuses the shared backend."""
+        return MemoryOrchestrator(
+            user_id=user_id,
+            agent_id=agent_id,
+            database=self._shared_database,
+            db_type=self.db_type,
+            openai_client=self.openai_client,
+            chat_client=self.openai_client,
+            config=self._build_memory_config().to_orchestrator_config(),
+        )
+
+    async def search_memory(
+        self,
+        *,
+        user_id: str,
+        agent_id: str,
+        query: str,
+        top_k: int,
+        search_interactions: bool,
+        search_insights: bool,
+        search_summaries: bool,
+        search_mode: str,
+    ) -> str:
+        """Search persisted memory without creating a temporary session."""
+        await self.initialize()
+        orchestrator = self._build_readonly_orchestrator(user_id, agent_id)
+        try:
+            return await orchestrator.retrieve_facts(
+                query,
+                top_k=top_k,
+                include_interactions=search_interactions,
+                include_summaries=search_summaries,
+                include_insights=search_insights,
+                search_mode=search_mode,
+            )
+        finally:
+            await orchestrator.close(close_database=False)
+
+    async def list_insights(self, user_id: str, agent_id: str, limit: int = 10) -> list[dict[str, Any]]:
+        """Fetch stored user insights without running session lifecycle setup."""
+        await self.initialize()
+        insights = await self._shared_database.query(
+            container=ContainerType.INSIGHTS,
+            filters={"user_id": user_id, "agent_id": agent_id},
+            limit=limit,
+        )
+        return [insight for insight in insights if not insight.get("is_deleted", False)]
+
+    async def list_sessions(self, user_id: str, agent_id: str, limit: int = 10) -> list[dict[str, Any]]:
+        """Fetch recent completed sessions without creating a temporary AgentMemory."""
+        await self.initialize()
+        return await self._shared_database.query(
+            container=ContainerType.SESSION_SUMMARIES,
+            filters={"user_id": user_id, "agent_id": agent_id, "status": "completed"},
+            order_by="-end_time",
+            limit=limit,
+        )
     
     async def evict_stale(self) -> int:
         """Evict sessions that have exceeded TTL."""
@@ -325,6 +415,9 @@ class SessionPool:
                 await memory.close()
             except Exception as e:
                 logger.warning(f"Error closing session {key}: {e}")
+        if self._shared_database is not None:
+            await self._shared_database.close()
+            self._shared_database = None
 
 
 # =============================================================================
@@ -374,6 +467,7 @@ async def lifespan(app: FastAPI):
         max_sessions=config.max_sessions,
         session_ttl_minutes=config.session_ttl_minutes
     )
+    await session_pool.initialize()
     logger.info("✓ Session pool initialized")
     
     # Start background eviction task
@@ -412,7 +506,7 @@ async def background_eviction_loop():
 
 app = FastAPI(
     title="Agent Memory Service",
-    description="RESTful API for agent memory management with CosmosDB backend",
+    description="RESTful API for agent memory management with pluggable backends",
     version="2.0.0",
     lifespan=lifespan
 )
@@ -590,21 +684,19 @@ async def search_memory(request: SearchRequest):
     """
     Search memory for relevant information.
     
-    Creates a temporary session if needed, searches, then cleans up.
+    Uses the shared backend directly and avoids temporary session lifecycle work.
     """
     try:
-        memory = await session_pool.create_ephemeral(request.user_id, request.agent_id, session_id=f"search-{uuid.uuid4()}")
-        try:
-            results = await memory.search(
-                query=request.query,
-                top_k=request.top_k,
-                search_interactions=request.search_interactions,
-                search_insights=request.search_insights,
-                search_summaries=request.search_summaries,
-                search_mode=request.search_mode,
-            )
-        finally:
-            await memory.close()
+        results = await session_pool.search_memory(
+            user_id=request.user_id,
+            agent_id=request.agent_id,
+            query=request.query,
+            top_k=request.top_k,
+            search_interactions=request.search_interactions,
+            search_insights=request.search_insights,
+            search_summaries=request.search_summaries,
+            search_mode=request.search_mode,
+        )
         
         return SearchResponse(
             results=results,
@@ -619,11 +711,7 @@ async def search_memory(request: SearchRequest):
 async def get_user_insights(user_id: str, limit: int = 10, agent_id: str = "default"):
     """Get long-term insights for a user."""
     try:
-        memory = await session_pool.create_ephemeral(user_id, agent_id, session_id=f"insights-{uuid.uuid4()}")
-        try:
-            insights = await memory.get_insights(limit=limit)
-        finally:
-            await memory.close()
+        insights = await session_pool.list_insights(user_id, agent_id, limit=limit)
         
         return {"user_id": user_id, "insights": insights}
     except Exception as e:
@@ -635,11 +723,7 @@ async def get_user_insights(user_id: str, limit: int = 10, agent_id: str = "defa
 async def get_user_sessions(user_id: str, limit: int = 10, agent_id: str = "default"):
     """Get recent sessions for a user."""
     try:
-        memory = await session_pool.create_ephemeral(user_id, agent_id, session_id=f"sessions-{uuid.uuid4()}")
-        try:
-            sessions = await memory.get_sessions(limit=limit)
-        finally:
-            await memory.close()
+        sessions = await session_pool.list_sessions(user_id, agent_id, limit=limit)
         
         return {"user_id": user_id, "sessions": sessions}
     except Exception as e:

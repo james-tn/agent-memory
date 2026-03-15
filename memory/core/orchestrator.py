@@ -7,12 +7,13 @@ This module provides a database-agnostic orchestrator that coordinates:
 - Reflection: Insight extraction and synthesis
 
 Works with any database backend implementing the MemoryDatabase interface
-(SQLite, CosmosDB, PostgreSQL).
+(SQLite, CosmosDB, Azure AI Search, PostgreSQL).
 """
 
 import uuid
 import asyncio
 import math
+import os
 from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Any, Union
@@ -39,6 +40,16 @@ class OrchestratorConfig:
     
     # Reflection settings
     LONGTERM_SYNTHESIS_FREQUENCY: int = 5  # Sessions between synthesis
+    insight_categories: List[str] = field(default_factory=lambda: [
+        "preferences",
+        "knowledge_level",
+        "goals",
+        "behavior_patterns",
+        "learning_progress",
+    ])
+    custom_extraction_prompt: Optional[str] = None
+    custom_conflict_resolution_prompt: Optional[str] = None
+    max_conflict_candidates: int = 5
     
     # Model settings
     REASONING_MODEL: str = "gpt-4o"
@@ -66,7 +77,8 @@ class MemoryOrchestrator:
     Supports:
     - SQLite (default, no server required)
     - CosmosDB (enterprise, hybrid search)
-    - PostgreSQL (future)
+    - Azure AI Search (managed hybrid search)
+    - PostgreSQL (pgvector-backed)
     
     Usage:
         # With SQLite (default)
@@ -101,6 +113,7 @@ class MemoryOrchestrator:
     def __init__(
         self,
         user_id: str,
+        agent_id: str = "default",
         session_id: Optional[str] = None,
         config: Optional[OrchestratorConfig] = None,
         # Database options (use one of these)
@@ -133,6 +146,7 @@ class MemoryOrchestrator:
             ValueError: If neither openai_client nor embedding_provider provided
         """
         self.user_id = user_id
+        self.agent_id = agent_id
         self.session_id = session_id or str(uuid.uuid4())
         self.config = config or OrchestratorConfig()
         
@@ -184,6 +198,36 @@ class MemoryOrchestrator:
 
     def _utcnow_iso(self) -> str:
         return datetime.now(timezone.utc).isoformat()
+
+    def _resolve_azure_openai_settings(self) -> Dict[str, Optional[str]]:
+        endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+        api_key = os.getenv("AZURE_OPENAI_API_KEY")
+        api_version = os.getenv("AZURE_OPENAI_API_VERSION")
+
+        client = self._chat_client or getattr(self, "_openai_client", None)
+        if client is not None:
+            if not endpoint:
+                azure_endpoint = getattr(client, "_azure_endpoint", None)
+                if azure_endpoint:
+                    endpoint = str(azure_endpoint).rstrip("/")
+                else:
+                    base_url = getattr(client, "base_url", None)
+                    if base_url:
+                        endpoint = str(base_url).split("/openai", 1)[0].rstrip("/")
+            if not api_key:
+                client_api_key = getattr(client, "api_key", None)
+                if client_api_key:
+                    api_key = str(client_api_key)
+            if not api_version:
+                client_api_version = getattr(client, "_api_version", None) or getattr(client, "api_version", None)
+                if client_api_version:
+                    api_version = str(client_api_version)
+
+        return {
+            "endpoint": endpoint,
+            "api_key": api_key,
+            "api_version": api_version,
+        }
     
     async def initialize(self) -> None:
         """Initialize the orchestrator, database, and components."""
@@ -204,6 +248,7 @@ class MemoryOrchestrator:
         # Initialize components
         self._memory_keeper = MemoryKeeper(
             user_id=self.user_id,
+            agent_id=self.agent_id,
             session_id=self.session_id,
             database=self._database,
             embedding_provider=self._embedding_provider,
@@ -211,18 +256,31 @@ class MemoryOrchestrator:
             config=mk_config
         )
         
+        azure_openai_settings = self._resolve_azure_openai_settings()
+
         self._fact_retrieval = FactRetrieval(
             user_id=self.user_id,
+            agent_id=self.agent_id,
             database=self._database,
             embedding_provider=self._embedding_provider,
-            config=FactRetrievalConfig(REASONING_MODEL=self.config.REASONING_MODEL)
+            config=FactRetrievalConfig(REASONING_MODEL=self.config.REASONING_MODEL),
+            azure_openai_endpoint=azure_openai_settings["endpoint"],
+            azure_openai_api_key=azure_openai_settings["api_key"],
+            azure_openai_api_version=azure_openai_settings["api_version"],
         )
-        
+
         self._reflection = Reflection(
+            agent_id=self.agent_id,
             database=self._database,
             embedding_provider=self._embedding_provider,
             chat_client=self._chat_client,
-            config=ReflectionConfig(PROCESSING_MODEL=self.config.PROCESSING_MODEL)
+            config=ReflectionConfig(
+                PROCESSING_MODEL=self.config.PROCESSING_MODEL,
+                insight_categories=self.config.insight_categories,
+                custom_extraction_prompt=self.config.custom_extraction_prompt,
+                custom_conflict_resolution_prompt=self.config.custom_conflict_resolution_prompt,
+                max_conflict_candidates=self.config.max_conflict_candidates,
+            )
         )
         
         self._initialized = True
@@ -247,6 +305,8 @@ class MemoryOrchestrator:
                 document_id=self.session_id,
                 partition_key=self.user_id,
             )
+            if existing_session and existing_session.get("agent_id", "default") != self.agent_id:
+                existing_session = None
             if not existing_session:
                 raise ValueError(f"Cannot restore missing session: {self.session_id}")
             if existing_session.get("status") == "completed":
@@ -256,15 +316,19 @@ class MemoryOrchestrator:
         else:
             # Track session start time
             self._session_start_time = self._utcnow_iso()
+            session_timestamp = self._utcnow_iso()
             
             # Create session document in database
             session_doc = {
                 "id": self.session_id,
                 "user_id": self.user_id,
+                "agent_id": self.agent_id,
                 "start_time": self._session_start_time,
                 "status": "active",
                 "cumulative_summary": "",
-                "turn_count": 0
+                "turn_count": 0,
+                "created_at": session_timestamp,
+                "updated_at": session_timestamp,
             }
             
             await self._database.upsert(
@@ -280,6 +344,7 @@ class MemoryOrchestrator:
         
         return {
             "session_id": self.session_id,
+            "agent_id": self.agent_id,
             "longterm_insight": session_init_context.longterm_insight,
             "recent_summaries": session_init_context.recent_summaries,
             "context": self._memory_keeper.get_current_context()
@@ -331,7 +396,8 @@ class MemoryOrchestrator:
         top_k: int = 5,
         include_interactions: bool = True,
         include_summaries: bool = True,
-        include_insights: bool = True
+        include_insights: bool = True,
+        search_mode: str = "auto",
     ) -> str:
         """
         Retrieve relevant facts from memory.
@@ -346,6 +412,7 @@ class MemoryOrchestrator:
             Formatted string with retrieved facts
         """
         await self.initialize()
+        resolved_search_mode = self._resolve_search_mode(search_mode)
 
         if self._memory_keeper:
             await self._memory_keeper.wait_for_pending_tasks()
@@ -361,8 +428,10 @@ class MemoryOrchestrator:
         # 2. Search persisted interactions.
         if include_interactions:
             interaction_results = await self._search_persisted_interactions(
+                query_text=query,
                 query_vector=query_vector,
                 top_k=top_k,
+                search_mode=resolved_search_mode,
             )
             for r in interaction_results:
                 summary = r.get("summary", "")
@@ -374,12 +443,14 @@ class MemoryOrchestrator:
 
         # 3. Search session summaries
         if include_summaries:
-            summary_results = await self._database.vector_search(
-                ContainerType.SESSION_SUMMARIES,
-                query_vector,
-                "summary_vector",
-                top_k,
-                {"user_id": self.user_id}
+            summary_results = await self._search_container(
+                container=ContainerType.SESSION_SUMMARIES,
+                query_text=query,
+                query_vector=query_vector,
+                vector_field="summary_vector",
+                top_k=top_k,
+                filters={"user_id": self.user_id, "agent_id": self.agent_id},
+                search_mode=resolved_search_mode,
             )
             for r in summary_results:
                 summary = r.get("summary", "")
@@ -388,14 +459,18 @@ class MemoryOrchestrator:
 
         # 4. Search insights
         if include_insights:
-            insight_results = await self._database.vector_search(
-                ContainerType.INSIGHTS,
-                query_vector,
-                "insight_vector",
-                top_k,
-                {"user_id": self.user_id}
+            insight_results = await self._search_container(
+                container=ContainerType.INSIGHTS,
+                query_text=query,
+                query_vector=query_vector,
+                vector_field="insight_vector",
+                top_k=top_k,
+                filters={"user_id": self.user_id, "agent_id": self.agent_id},
+                search_mode=resolved_search_mode,
             )
             for r in insight_results:
+                if r.get("is_deleted", False):
+                    continue
                 insight_text = r.get("insight_text", "")
                 category = r.get("category", "general")
                 if insight_text:
@@ -411,20 +486,24 @@ class MemoryOrchestrator:
     async def _search_persisted_interactions(
         self,
         *,
+        query_text: str,
         query_vector: List[float],
         top_k: int,
+        search_mode: str,
     ) -> List[SearchResult]:
         """Search persisted interaction chunks, preferring summary embeddings."""
         seen_ids = set()
         merged_results: List[SearchResult] = []
 
         for vector_field in ("summary_vector", "content_vector"):
-            vector_results = await self._database.vector_search(
-                ContainerType.INTERACTIONS,
-                query_vector,
-                vector_field,
-                top_k,
-                {"user_id": self.user_id}
+            vector_results = await self._search_container(
+                container=ContainerType.INTERACTIONS,
+                query_text=query_text,
+                query_vector=query_vector,
+                vector_field=vector_field,
+                top_k=top_k,
+                filters={"user_id": self.user_id, "agent_id": self.agent_id},
+                search_mode=search_mode,
             )
             for result in vector_results:
                 if result.id in seen_ids:
@@ -433,6 +512,62 @@ class MemoryOrchestrator:
                 merged_results.append(result)
 
         return merged_results
+
+    def _resolve_search_mode(self, search_mode: str) -> str:
+        """Resolve the requested search mode against backend capabilities."""
+        requested = (search_mode or "auto").lower()
+        get_capabilities = getattr(self._database, "get_capabilities", None)
+        if not callable(get_capabilities):
+            return "vector" if requested in {"auto", "hybrid", "keyword"} else requested
+        capabilities = get_capabilities()
+
+        if requested == "auto":
+            if capabilities.supports_hybrid_search:
+                return "hybrid"
+            return "vector"
+        if requested == "hybrid" and not capabilities.supports_hybrid_search:
+            return "vector"
+        if requested == "keyword" and not capabilities.supports_full_text_search:
+            return "vector"
+        return requested
+
+    async def _search_container(
+        self,
+        *,
+        container: ContainerType,
+        query_text: str,
+        query_vector: List[float],
+        vector_field: str,
+        top_k: int,
+        filters: Dict[str, Any],
+        search_mode: str,
+    ) -> List[SearchResult]:
+        """Search a container using the resolved retrieval mode."""
+        if search_mode == "hybrid":
+            return await self._database.hybrid_search(
+                container=container,
+                query_text=query_text,
+                query_embedding=query_vector,
+                vector_field=vector_field,
+                top_k=top_k,
+                filters=filters,
+            )
+        if search_mode == "keyword":
+            return await self._database.hybrid_search(
+                container=container,
+                query_text=query_text,
+                query_embedding=query_vector,
+                vector_field=vector_field,
+                top_k=top_k,
+                filters=filters,
+            )
+        return await self._database.vector_search(
+            container=container,
+            query_embedding=query_vector,
+            vector_field=vector_field,
+            top_k=top_k,
+            filters=filters,
+        )
 
     def _search_active_session_facts(
         self,
@@ -605,6 +740,7 @@ class MemoryOrchestrator:
         session_doc = {
             "id": self.session_id,
             "user_id": self.user_id,
+            "agent_id": self.agent_id,
             "start_time": start_time,  # Preserve start_time
             "end_time": self._utcnow_iso(),
             "summary": summary_text,
@@ -620,36 +756,15 @@ class MemoryOrchestrator:
             partition_key=self.user_id
         )
         
-        # Store insights
+        # Reconcile and store insights through the reflection pipeline.
         insights_stored = []
+        insight_mutations = []
         if trigger_reflection and analysis.get("insights"):
-            for insight_data in analysis["insights"]:
-                insight_text = insight_data.get("insight_text", "")
-                if not insight_text:
-                    continue
-                
-                insight_vector = self._embedding_provider.get_embedding(insight_text)
-                insight_doc = {
-                    "id": insight_data.get("id", str(uuid.uuid4())),
-                    "user_id": self.user_id,
-                    "session_ids": [self.session_id],  # JSON array format
-                    "insight_type": "session",
-                    "insight_text": insight_text,
-                    "insight_vector": insight_vector,
-                    "category": insight_data.get("category", "general"),
-                    "confidence": insight_data.get("confidence", 0.5),
-                    "importance": insight_data.get("importance", "medium"),
-                    "processed": False,
-                    "created_at": self._utcnow_iso(),
-                    "updated_at": self._utcnow_iso()
-                }
-                
-                await self._database.upsert(
-                    container=ContainerType.INSIGHTS,
-                    document=insight_doc,
-                    partition_key=self.user_id
-                )
-                insights_stored.append(insight_doc)
+            insights_stored, insight_mutations = await self._reflection.reconcile_session_insights(
+                user_id=self.user_id,
+                session_id=self.session_id,
+                extracted_insights=analysis["insights"],
+            )
         
         # Check long-term synthesis trigger
         synthesis_triggered = await self._check_longterm_synthesis_trigger()
@@ -661,12 +776,14 @@ class MemoryOrchestrator:
         
         return {
             "session_id": self.session_id,
+            "agent_id": self.agent_id,
             "session_summary": summary_text,
             "key_topics": analysis.get("key_topics", []),
             "insights_extracted": insights_stored,
             "has_meaningful_insights": analysis.get("has_meaningful_insights", False),
             "total_turns": len(self._recent_turns),
             "synthesis_triggered": synthesis_triggered,
+            "insight_mutations": insight_mutations,
         }
     
     async def get_longterm_insight(self) -> Optional[str]:
@@ -861,7 +978,7 @@ REASON: <brief explanation>"""
             # Count completed sessions
             completed_sessions = await self._database.query(
                 container=ContainerType.SESSION_SUMMARIES,
-                filters={"user_id": self.user_id, "status": "completed"}
+                filters={"user_id": self.user_id, "agent_id": self.agent_id, "status": "completed"}
             )
             
             session_count = len(completed_sessions)
@@ -885,6 +1002,7 @@ REASON: <brief explanation>"""
         """Get current orchestrator status."""
         return {
             "user_id": self.user_id,
+            "agent_id": self.agent_id,
             "session_id": self.session_id,
             "initialized": self._initialized,
             "session_started": self._session_started,
@@ -912,7 +1030,7 @@ REASON: <brief explanation>"""
         """
         await self.initialize()
         
-        filters = {"user_id": self.user_id}
+        filters = {"user_id": self.user_id, "agent_id": self.agent_id}
         if category:
             filters["category"] = category
         
@@ -922,7 +1040,7 @@ REASON: <brief explanation>"""
                 filters=filters,
                 limit=limit
             )
-            return insights
+            return [insight for insight in insights if not insight.get("is_deleted", False)]
         except Exception as e:
             print(f"[Orchestrator] Error getting insights: {e}")
             return []
@@ -942,7 +1060,7 @@ REASON: <brief explanation>"""
         try:
             sessions = await self._database.query(
                 container=ContainerType.SESSION_SUMMARIES,
-                filters={"user_id": self.user_id, "status": "completed"},
+                filters={"user_id": self.user_id, "agent_id": self.agent_id, "status": "completed"},
                 order_by="-end_time",
                 limit=limit
             )
@@ -951,9 +1069,10 @@ REASON: <brief explanation>"""
             print(f"[Orchestrator] Error getting sessions: {e}")
             return []
     
-    async def close(self) -> None:
-        """Close the orchestrator and database."""
-        if self._owns_database and self._database:
+    async def close(self, *, close_database: Optional[bool] = None) -> None:
+        """Close the orchestrator and optionally its owned database."""
+        should_close_database = self._owns_database if close_database is None else (close_database and self._owns_database)
+        if should_close_database and self._database:
             await self._database.close()
         self._initialized = False
         self._session_started = False
@@ -971,6 +1090,7 @@ REASON: <brief explanation>"""
 # Factory function for convenience
 def create_orchestrator(
     user_id: str,
+    agent_id: str = "default",
     session_id: Optional[str] = None,
     db_type: DatabaseType = DatabaseType.SQLITE,
     openai_client=None,
@@ -993,6 +1113,7 @@ def create_orchestrator(
     """
     return MemoryOrchestrator(
         user_id=user_id,
+        agent_id=agent_id,
         session_id=session_id,
         db_type=db_type,
         openai_client=openai_client,

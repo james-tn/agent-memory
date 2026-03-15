@@ -46,6 +46,22 @@ param authTenantId string = ''
 @secure()
 param authClientSecret string = ''
 
+@description('Admin login for Azure Database for PostgreSQL Flexible Server.')
+param postgresAdminLogin string
+
+@description('Admin password for Azure Database for PostgreSQL Flexible Server.')
+@secure()
+param postgresAdminPassword string
+
+@description('Optional location override for Azure Database for PostgreSQL Flexible Server.')
+param postgresLocation string = location
+
+@description('Optional suffix appended to the PostgreSQL server name to avoid collisions after failed creates.')
+param postgresServerNameSuffix string = ''
+
+@description('Public IPv4 address allowed to connect to PostgreSQL for local live testing.')
+param localDeveloperPublicIp string = ''
+
 var secureCosmos = secureCosmosConnectivity
 
 // Tags to apply to all resources
@@ -135,6 +151,34 @@ module cosmosdb './modules/cosmosdb.bicep' = {
     enablePrivateEndpoint: secureCosmos
     privateEndpointSubnetId: secureCosmos ? network!.outputs.privateEndpointSubnetId : ''
     privateDnsZoneId: secureCosmos ? network!.outputs.privateDnsZoneId : ''
+  }
+}
+
+// Azure AI Search service used for hybrid/vector memory retrieval
+module azureSearch './modules/azure-search.bicep' = {
+  scope: rg
+  name: 'azure-search-deployment'
+  params: {
+    location: location
+    baseName: baseName
+    environmentName: environmentName
+    tags: tags
+  }
+}
+
+// Azure Database for PostgreSQL Flexible Server for pgvector-backed memory storage
+module postgresql './modules/postgresql.bicep' = {
+  scope: rg
+  name: 'postgresql-deployment'
+  params: {
+    location: postgresLocation
+    baseName: baseName
+    environmentName: environmentName
+    tags: tags
+    adminLogin: postgresAdminLogin
+    adminPassword: postgresAdminPassword
+    serverNameSuffix: postgresServerNameSuffix
+    localPublicIp: localDeveloperPublicIp
   }
 }
 
@@ -244,6 +288,18 @@ output AZURE_COSMOS_DATABASE_NAME string = cosmosdb.outputs.databaseName
 output AZURE_COSMOS_INTERACTIONS_CONTAINER string = cosmosdb.outputs.interactionsContainer
 output AZURE_COSMOS_SUMMARIES_CONTAINER string = cosmosdb.outputs.summariesContainer
 output AZURE_COSMOS_INSIGHTS_CONTAINER string = cosmosdb.outputs.insightsContainer
+
+output AZURE_AI_SEARCH_SERVICE_NAME string = azureSearch.outputs.serviceName
+output AZURE_AI_SEARCH_ENDPOINT string = azureSearch.outputs.endpoint
+@secure()
+output AZURE_AI_SEARCH_API_KEY string = azureSearch.outputs.primaryKey
+output AZURE_AI_SEARCH_INDEX_PREFIX string = azureSearch.outputs.indexPrefix
+
+output POSTGRES_HOST string = postgresql.outputs.host
+output POSTGRES_DATABASE string = postgresql.outputs.databaseName
+output POSTGRES_ADMIN_LOGIN string = postgresql.outputs.adminLogin
+@secure()
+output POSTGRES_CONNECTION_STRING string = postgresql.outputs.connectionString
 
 output AZURE_CONTAINER_REGISTRY_NAME string = acr.outputs.registryName
 output AZURE_CONTAINER_REGISTRY_ENDPOINT string = acr.outputs.loginServer

@@ -35,6 +35,7 @@ SCHEMAS = {
         CREATE TABLE IF NOT EXISTS interactions (
             id TEXT PRIMARY KEY,
             user_id TEXT NOT NULL,
+            agent_id TEXT NOT NULL DEFAULT 'default',
             session_id TEXT NOT NULL,
             timestamp TEXT NOT NULL,
             content TEXT NOT NULL,
@@ -53,6 +54,7 @@ SCHEMAS = {
         CREATE TABLE IF NOT EXISTS insights (
             id TEXT PRIMARY KEY,
             user_id TEXT NOT NULL,
+            agent_id TEXT NOT NULL DEFAULT 'default',
             insight_type TEXT NOT NULL,  -- 'session', 'long_term', or 'long_term_item'
             session_ids TEXT,  -- JSON array
             insight_text TEXT NOT NULL,
@@ -67,6 +69,9 @@ SCHEMAS = {
             date_added TEXT,  -- For itemized insights
             last_accessed TEXT,  -- For itemized insights
             access_count INTEGER DEFAULT 0,  -- For itemized insights
+            is_deleted INTEGER DEFAULT 0,
+            deleted_at TEXT,
+            mutation_history TEXT,  -- JSON array
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );
@@ -78,6 +83,7 @@ SCHEMAS = {
         CREATE TABLE IF NOT EXISTS session_summaries (
             id TEXT PRIMARY KEY,
             user_id TEXT NOT NULL,
+            agent_id TEXT NOT NULL DEFAULT 'default',
             start_time TEXT NOT NULL,
             end_time TEXT,
             summary TEXT DEFAULT '',
@@ -100,6 +106,7 @@ ALLOWED_FILTER_COLUMNS = {
     ContainerType.INTERACTIONS: {
         "id",
         "user_id",
+        "agent_id",
         "session_id",
         "timestamp",
         "content",
@@ -110,6 +117,7 @@ ALLOWED_FILTER_COLUMNS = {
     ContainerType.INSIGHTS: {
         "id",
         "user_id",
+        "agent_id",
         "insight_type",
         "insight_text",
         "confidence",
@@ -120,12 +128,15 @@ ALLOWED_FILTER_COLUMNS = {
         "date_added",
         "last_accessed",
         "access_count",
+        "is_deleted",
+        "deleted_at",
         "created_at",
         "updated_at",
     },
     ContainerType.SESSION_SUMMARIES: {
         "id",
         "user_id",
+        "agent_id",
         "start_time",
         "end_time",
         "summary",
@@ -207,6 +218,7 @@ class SQLiteDatabase(MemoryDatabase):
         # Create tables
         for container_type, schema in SCHEMAS.items():
             self._conn.executescript(schema)
+        self._ensure_schema_columns()
         
         # Create virtual tables for vector search if extension available
         if self._vec_available:
@@ -214,6 +226,34 @@ class SQLiteDatabase(MemoryDatabase):
         
         self._conn.commit()
         self._initialized = True
+
+    def _ensure_schema_columns(self) -> None:
+        """Apply lightweight ALTER TABLE migrations for additive columns."""
+        migrations = {
+            "interactions": {
+                "agent_id": "TEXT NOT NULL DEFAULT 'default'",
+            },
+            "insights": {
+                "agent_id": "TEXT NOT NULL DEFAULT 'default'",
+                "is_deleted": "INTEGER DEFAULT 0",
+                "deleted_at": "TEXT",
+                "mutation_history": "TEXT",
+            },
+            "session_summaries": {
+                "agent_id": "TEXT NOT NULL DEFAULT 'default'",
+            },
+        }
+        for table_name, columns in migrations.items():
+            existing = {
+                row["name"]
+                for row in self._conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+            }
+            for column_name, column_def in columns.items():
+                if column_name in existing:
+                    continue
+                self._conn.execute(
+                    f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_def}"
+                )
     
     def _try_load_vec_extension(self) -> bool:
         """Try to load sqlite-vec extension."""
@@ -334,6 +374,7 @@ class SQLiteDatabase(MemoryDatabase):
             "extracted_insights",
             "source_insight_ids",
             "source_session_ids",
+            "mutation_history",
         ]
         for field in json_fields:
             if field in result and result[field]:
@@ -343,8 +384,9 @@ class SQLiteDatabase(MemoryDatabase):
                     pass
         
         # Convert processed from int to bool
-        if "processed" in result:
-            result["processed"] = bool(result["processed"])
+        for bool_field in ("processed", "is_deleted"):
+            if bool_field in result and result[bool_field] is not None:
+                result[bool_field] = bool(result[bool_field])
         
         # Don't return vector blobs in regular queries
         for key in list(result.keys()):
@@ -393,7 +435,7 @@ class SQLiteDatabase(MemoryDatabase):
         
         # Serialize JSON fields
         json_fields = ["metadata", "session_ids", "key_topics",
-                       "extracted_insights", "source_insight_ids", "source_session_ids"]
+                       "extracted_insights", "source_insight_ids", "source_session_ids", "mutation_history"]
         for field in json_fields:
             if field in doc and doc[field] is not None:
                 if isinstance(doc[field], (list, dict)):
@@ -407,8 +449,9 @@ class SQLiteDatabase(MemoryDatabase):
                     doc[field] = _serialize_vector(doc[field])
         
         # Convert boolean to int
-        if "processed" in doc:
-            doc["processed"] = 1 if doc["processed"] else 0
+        for bool_field in ("processed", "is_deleted"):
+            if bool_field in doc:
+                doc[bool_field] = 1 if doc[bool_field] else 0
         
         # Build upsert query
         columns = list(doc.keys())

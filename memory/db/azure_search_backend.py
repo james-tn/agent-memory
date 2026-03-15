@@ -141,9 +141,13 @@ class AzureAISearchDatabase(MemoryDatabase):
         self._search_clients = search_clients or {}
         self._owns_index_client = index_client is None
         self._owns_search_clients = search_clients is None
+        self._initialized = False
 
     async def initialize(self) -> None:
         """Create indexes if needed and initialize per-container clients."""
+        if self._initialized:
+            return
+
         if self._index_client is None:
             self._index_client = SearchIndexClient(
                 endpoint=self.endpoint,
@@ -161,6 +165,8 @@ class AzureAISearchDatabase(MemoryDatabase):
                     credential=self._credential,
                 )
 
+        self._initialized = True
+
     async def close(self) -> None:
         """Close owned search clients."""
         if self._owns_search_clients:
@@ -171,6 +177,7 @@ class AzureAISearchDatabase(MemoryDatabase):
         if self._owns_index_client and self._index_client is not None:
             await self._index_client.close()
         self._index_client = None
+        self._initialized = False
 
     def get_capabilities(self) -> DatabaseCapabilities:
         """Describe backend capabilities."""
@@ -192,6 +199,7 @@ class AzureAISearchDatabase(MemoryDatabase):
         partition_key: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Insert or replace a document."""
+        container = self._normalize_container(container)
         if "id" not in document:
             raise ValueError("Document must have an 'id' field")
 
@@ -207,6 +215,7 @@ class AzureAISearchDatabase(MemoryDatabase):
         partition_key: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """Insert or replace multiple documents."""
+        container = self._normalize_container(container)
         for document in documents:
             if "id" not in document:
                 raise ValueError("Document must have an 'id' field")
@@ -224,6 +233,7 @@ class AzureAISearchDatabase(MemoryDatabase):
         partition_key: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         """Retrieve a document by its ID."""
+        container = self._normalize_container(container)
         client = self._get_search_client(container)
         try:
             document = await client.get_document(
@@ -242,6 +252,7 @@ class AzureAISearchDatabase(MemoryDatabase):
         partition_key: Optional[str] = None,
     ) -> bool:
         """Delete a document by ID."""
+        container = self._normalize_container(container)
         client = self._get_search_client(container)
         results = await client.delete_documents(documents=[{"id": document_id}])
         return any(getattr(result, "succeeded", True) for result in results)
@@ -254,6 +265,7 @@ class AzureAISearchDatabase(MemoryDatabase):
         limit: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         """Query documents with equality filters and optional ordering."""
+        container = self._normalize_container(container)
         self._validate_filter_keys(container, filters)
         order_clauses = None
         if order_by:
@@ -278,6 +290,7 @@ class AzureAISearchDatabase(MemoryDatabase):
         filters: Optional[Dict[str, Any]] = None,
     ) -> List[SearchResult]:
         """Perform pure vector similarity search."""
+        container = self._normalize_container(container)
         self._validate_filter_keys(container, filters)
         results = await self._run_search(
             container=container,
@@ -287,7 +300,7 @@ class AzureAISearchDatabase(MemoryDatabase):
             vector_queries=[
                 VectorizedQuery(
                     vector=query_embedding,
-                    k_nearest_neighbors=top_k,
+                    k=top_k,
                     fields=vector_field,
                 )
             ],
@@ -305,6 +318,7 @@ class AzureAISearchDatabase(MemoryDatabase):
         filters: Optional[Dict[str, Any]] = None,
     ) -> List[SearchResult]:
         """Perform native Azure AI Search hybrid search."""
+        container = self._normalize_container(container)
         self._validate_filter_keys(container, filters)
         results = await self._run_search(
             container=container,
@@ -315,7 +329,7 @@ class AzureAISearchDatabase(MemoryDatabase):
             vector_queries=[
                 VectorizedQuery(
                     vector=query_embedding,
-                    k_nearest_neighbors=top_k,
+                    k=top_k,
                     fields=vector_field,
                 )
             ],
@@ -324,6 +338,7 @@ class AzureAISearchDatabase(MemoryDatabase):
 
     def _get_search_client(self, container: ContainerType) -> SearchClient:
         """Return the client for a container."""
+        container = self._normalize_container(container)
         try:
             return self._search_clients[container]
         except KeyError as exc:
@@ -331,8 +346,15 @@ class AzureAISearchDatabase(MemoryDatabase):
 
     def _index_name(self, container: ContainerType) -> str:
         """Build a valid Azure AI Search index name."""
+        container = self._normalize_container(container)
         suffix = INDEX_SUFFIXES[container]
         return f"{self.index_prefix}-{suffix}".replace("_", "-").lower()
+
+    def _normalize_container(self, container: ContainerType | str) -> ContainerType:
+        """Normalize enum instances that may come from reloaded modules."""
+        if isinstance(container, ContainerType):
+            return container
+        return ContainerType(getattr(container, "value", container))
 
     def _selected_fields(self, container: ContainerType) -> List[str]:
         """Return all non-vector fields for a container."""

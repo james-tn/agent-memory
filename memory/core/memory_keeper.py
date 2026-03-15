@@ -94,6 +94,7 @@ class MemoryKeeper:
     def __init__(
         self,
         user_id: str,
+        agent_id: str,
         session_id: str,
         database: MemoryDatabase,
         embedding_provider: EmbeddingProvider,
@@ -112,6 +113,7 @@ class MemoryKeeper:
             config: Configuration settings (uses defaults if not provided)
         """
         self.user_id = user_id
+        self.agent_id = agent_id
         self.session_id = session_id
         self.database = database
         self.embedding_provider = embedding_provider
@@ -190,7 +192,7 @@ class MemoryKeeper:
         # Query recent session summaries using database abstraction
         results = await self.database.query(
             container=ContainerType.SESSION_SUMMARIES,
-            filters={"user_id": self.user_id, "status": "completed"},
+            filters={"user_id": self.user_id, "agent_id": self.agent_id, "status": "completed"},
             order_by="-end_time",
             limit=self.config.NUM_RECENT_SESSIONS_FOR_INIT
         )
@@ -313,6 +315,7 @@ class MemoryKeeper:
         interaction_doc = {
             "id": str(uuid.uuid4()),
             "user_id": self.user_id,
+            "agent_id": self.agent_id,
             "session_id": self.session_id,
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "content": conversation_text,
@@ -364,6 +367,7 @@ class MemoryKeeper:
         interaction_doc = {
             "id": str(uuid.uuid4()),
             "user_id": self.user_id,
+            "agent_id": self.agent_id,
             "session_id": self.session_id,
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "content": conversation_text,
@@ -592,12 +596,15 @@ class MemoryKeeper:
                 document_id=self.session_id,
                 partition_key=self.user_id
             )
+            if existing and existing.get("agent_id", "default") != self.agent_id:
+                existing = None
             start_time = existing.get("start_time") if existing else datetime.now(timezone.utc).isoformat()
             
             # Update session document in database
             session_update = {
                 "id": self.session_id,
                 "user_id": self.user_id,
+                "agent_id": self.agent_id,
                 "start_time": start_time,  # Required NOT NULL field
                 "cumulative_summary": self.cumulative_summary,
                 "turn_count": len(self.turn_buffer),
@@ -632,6 +639,8 @@ class MemoryKeeper:
                 document_id=self.session_id,
                 partition_key=self.user_id
             )
+            if existing_doc and existing_doc.get("agent_id", "default") != self.agent_id:
+                existing_doc = None
             
             if existing_doc and existing_doc.get("status") == "completed":
                 print(f"  ℹ️ Skipping metadata update - session {self.session_id} already completed")
@@ -640,7 +649,8 @@ class MemoryKeeper:
             session_update = {
                 "id": self.session_id,
                 "user_id": self.user_id,
-                "last_updated": datetime.now(timezone.utc).isoformat()
+                "agent_id": self.agent_id,
+                "updated_at": datetime.now(timezone.utc).isoformat()
             }
             
             if cumulative_summary is not None:

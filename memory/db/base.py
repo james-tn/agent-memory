@@ -2,7 +2,8 @@
 Abstract Base Class for Memory Database Backends.
 
 This module defines the interface that all database backends must implement.
-The abstraction enables switching between SQLite, CosmosDB, and PostgreSQL
+The abstraction enables switching between SQLite, CosmosDB, Azure AI Search,
+and PostgreSQL
 without changing the memory service logic.
 """
 

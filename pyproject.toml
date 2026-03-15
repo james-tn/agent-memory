@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "agent-memory"
 version = "0.1.0"
-description = "CosmosDB-backed agent memory with multi-tier storage"
+description = "Pluggable agent memory with SQLite, Cosmos DB, Azure AI Search, and PostgreSQL backends"
 requires-python = ">=3.12"
 dependencies = [
     "agent-framework==1.0.0rc4",
@@ -44,3 +44,6 @@ testpaths = ["tests"]
 pythonpath = ["."]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+markers = [
+    "live: runs live Azure-backed integration tests",
+]
