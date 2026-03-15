@@ -4,7 +4,8 @@ Database Abstraction Layer for Agent Memory Service.
 This module provides a unified interface for multiple database backends:
 - SQLite with sqlite-vec extension (default, no server required)
 - Azure CosmosDB for NoSQL
-- Azure PostgreSQL with pgvector (future)
+- Azure AI Search for native hybrid retrieval
+- PostgreSQL with pgvector
 
 Example usage:
     from memory.db import create_database, DatabaseType, ContainerType

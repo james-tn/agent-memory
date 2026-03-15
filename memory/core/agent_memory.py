@@ -2,7 +2,7 @@
 Unified Agent Memory Interface.
 
 Provides a clean, easy-to-use API for agent memory with:
-- Database-agnostic design (SQLite, CosmosDB, PostgreSQL)
+- Database-agnostic design (SQLite, CosmosDB, Azure AI Search, PostgreSQL)
 - Auto-session management
 - Intuitive method names
 - Context manager support
@@ -63,6 +63,16 @@ class AgentMemoryConfig:
     # Reflection
     trigger_reflection_on_end: bool = True
     longterm_synthesis_frequency: int = 5  # Auto-synthesize every N sessions
+    insight_categories: List[str] = field(default_factory=lambda: [
+        "preferences",
+        "knowledge_level",
+        "goals",
+        "behavior_patterns",
+        "learning_progress",
+    ])
+    custom_extraction_prompt: Optional[str] = None
+    custom_conflict_resolution_prompt: Optional[str] = None
+    max_conflict_candidates: int = 5
     
     # Model settings (configured via env vars if not specified)
     reasoning_model: Optional[str] = None  # AZURE_OPENAI_REASONING_MODEL
@@ -88,6 +98,10 @@ class AgentMemoryConfig:
             PROCESSING_MODEL=self.processing_model or os.getenv("AZURE_OPENAI_PROCESSING_MODEL", "gpt-4o-mini"),
             EMBEDDING_MODEL=self.embedding_model,
             EMBEDDING_DIMENSIONS=self.embedding_dimensions,
+            insight_categories=self.insight_categories,
+            custom_extraction_prompt=self.custom_extraction_prompt,
+            custom_conflict_resolution_prompt=self.custom_conflict_resolution_prompt,
+            max_conflict_candidates=self.max_conflict_candidates,
             auto_enrich_context=self.auto_enrich_context,
             enrichment_trigger_keywords=self.enrichment_trigger_keywords,
         )
@@ -102,7 +116,7 @@ class AgentMemory(BaseContextProvider):
     - Mid-term: Session summaries with vector search
     - Long-term: User insights and patterns
     
-    Supports SQLite (default), CosmosDB, and PostgreSQL backends.
+    Supports SQLite (default), CosmosDB, Azure AI Search, and PostgreSQL backends.
     
     Examples:
         # SQLite (default, simplest usage)
@@ -136,6 +150,7 @@ class AgentMemory(BaseContextProvider):
     def __init__(
         self,
         user_id: str,
+        agent_id: str = "default",
         *,
         # Client options
         openai_client=None,
@@ -153,6 +168,16 @@ class AgentMemory(BaseContextProvider):
         connection_string: Optional[str] = None,
         cosmos_endpoint: Optional[str] = None,
         cosmos_client=None,
+
+        # Azure AI Search options
+        search_endpoint: Optional[str] = None,
+        search_api_key: Optional[str] = None,
+        search_credential=None,
+        search_index_prefix: str = "agent-memory",
+
+        # PostgreSQL options
+        postgres_connection_string: Optional[str] = None,
+        postgres_pool=None,
         
         # Configuration
         config: Optional[AgentMemoryConfig] = None,
@@ -169,7 +194,7 @@ class AgentMemory(BaseContextProvider):
             openai_client: Azure OpenAI client for embeddings/chat
             chat_client: Separate chat client (optional, defaults to openai_client)
             embedding_provider: Custom embedding provider (optional)
-            db_type: Database type (SQLITE, COSMOSDB, POSTGRESQL)
+            db_type: Database type (SQLITE, COSMOSDB, AZURE_AI_SEARCH, POSTGRESQL)
             database: Pre-created database instance (advanced)
             db_path: Path to SQLite database file (SQLite only)
             connection_string: Cosmos connection string (CosmosDB only)
@@ -185,11 +210,18 @@ class AgentMemory(BaseContextProvider):
             super().__init__(source_id="agent_memory")
 
         self.user_id = user_id
+        self.agent_id = agent_id
         self.config = config or AgentMemoryConfig()
         self.db_type = db_type
         self.db_path = db_path
         self.connection_string = connection_string
         self.cosmos_endpoint = cosmos_endpoint
+        self.search_endpoint = search_endpoint
+        self.search_api_key = search_api_key
+        self.search_credential = search_credential
+        self.search_index_prefix = search_index_prefix
+        self.postgres_connection_string = postgres_connection_string
+        self.postgres_pool = postgres_pool
         self.session_id = session_id
         self._session_started = False
         self._initialized = False
@@ -256,10 +288,25 @@ class AgentMemory(BaseContextProvider):
                     )
             db_kwargs["database_name"] = self.config.database_name
             db_kwargs["vector_dimensions"] = self.config.embedding_dimensions
+        elif self.db_type == DatabaseType.AZURE_AI_SEARCH:
+            db_kwargs["endpoint"] = self.search_endpoint or os.getenv("AZURE_AI_SEARCH_ENDPOINT") or os.getenv("AZURE_SEARCH_ENDPOINT")
+            db_kwargs["api_key"] = self.search_api_key or os.getenv("AZURE_AI_SEARCH_API_KEY") or os.getenv("AZURE_SEARCH_API_KEY")
+            db_kwargs["credential"] = self.search_credential
+            db_kwargs["index_prefix"] = self.search_index_prefix or os.getenv("AZURE_AI_SEARCH_INDEX_PREFIX", "agent-memory")
+            db_kwargs["vector_dimensions"] = self.config.embedding_dimensions
+        elif self.db_type == DatabaseType.POSTGRESQL:
+            db_kwargs["connection_string"] = (
+                self.postgres_connection_string
+                or os.getenv("POSTGRES_CONNECTION_STRING")
+                or os.getenv("DATABASE_URL")
+            )
+            db_kwargs["pool"] = self.postgres_pool
+            db_kwargs["vector_dimensions"] = self.config.embedding_dimensions
         
         # Create orchestrator
         self._orchestrator = MemoryOrchestrator(
             user_id=self.user_id,
+            agent_id=self.agent_id,
             session_id=self.session_id,
             config=self.config.to_orchestrator_config(),
             database=self._database,
@@ -397,7 +444,8 @@ class AgentMemory(BaseContextProvider):
         top_k: int = None,
         search_interactions: bool = True,
         search_insights: bool = True,
-        search_summaries: bool = False
+        search_summaries: bool = False,
+        search_mode: str = "auto",
     ) -> str:
         """
         Search memory for relevant information.
@@ -422,7 +470,8 @@ class AgentMemory(BaseContextProvider):
             top_k=top_k,
             include_interactions=search_interactions,
             include_summaries=search_summaries,
-            include_insights=search_insights
+            include_insights=search_insights,
+            search_mode=search_mode,
         )
     
     async def get_insights(
@@ -465,6 +514,7 @@ class AgentMemory(BaseContextProvider):
         """
         status = {
             "user_id": self.user_id,
+            "agent_id": self.agent_id,
             "session_id": self.session_id,
             "db_type": self.db_type.value if hasattr(self.db_type, 'value') else str(self.db_type),
             "session_started": self._session_started,
@@ -645,6 +695,7 @@ class AgentMemory(BaseContextProvider):
 
 def create_agent_memory(
     user_id: str,
+    agent_id: str = "default",
     db_type: DatabaseType = DatabaseType.SQLITE,
     *,
     openai_client=None,
@@ -656,7 +707,7 @@ def create_agent_memory(
     
     Args:
         user_id: User identifier
-        db_type: Database type (SQLITE, COSMOSDB, POSTGRESQL)
+        db_type: Database type (SQLITE, COSMOSDB, AZURE_AI_SEARCH, POSTGRESQL)
         openai_client: OpenAI client for embeddings and chat
         config: Memory configuration
         **kwargs: Additional arguments passed to AgentMemory constructor
@@ -678,6 +729,7 @@ def create_agent_memory(
     """
     return AgentMemory(
         user_id=user_id,
+        agent_id=agent_id,
         db_type=db_type,
         openai_client=openai_client,
         config=config,

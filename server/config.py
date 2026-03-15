@@ -50,6 +50,14 @@ class ServerConfig(BaseSettings):
     cosmos_interactions_container: str = "interactions"
     cosmos_summaries_container: str = "session_summaries"
     cosmos_insights_container: str = "insights"
+
+    # Azure AI Search Settings
+    azure_ai_search_endpoint: Optional[str] = None
+    azure_ai_search_api_key: Optional[str] = None
+    azure_ai_search_index_prefix: str = "agent-memory"
+
+    # PostgreSQL Settings
+    postgres_connection_string: Optional[str] = None
     
     # AAD Settings (for CosmosDB authentication if cosmos_key not provided)
     aad_client_id: Optional[str] = None

@@ -1,7 +1,7 @@
 """Agent Memory Service - Core memory management for AI agents.
 
 This module provides a unified, database-agnostic interface for managing
-agent memory across conversations. Supports SQLite (local) and CosmosDB (enterprise).
+agent memory across conversations. Supports SQLite, CosmosDB, Azure AI Search, and PostgreSQL.
 
 Quick Start:
     from memory import AgentMemory, AgentMemoryConfig

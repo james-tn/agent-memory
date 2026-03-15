@@ -51,6 +51,7 @@ def _server_database_type() -> DatabaseType:
 class StartSessionRequest(BaseModel):
     """Request to start a new session."""
     user_id: str
+    agent_id: str = "default"
     session_id: Optional[str] = None
     restore: bool = False
 
@@ -59,6 +60,7 @@ class StartSessionResponse(BaseModel):
     """Response from starting a session."""
     session_id: str
     user_id: str
+    agent_id: str
     context: str
     insights_loaded: bool
     recent_sessions_count: int
@@ -67,6 +69,7 @@ class StartSessionResponse(BaseModel):
 class StoreTurnRequest(BaseModel):
     """Request to store a conversation turn."""
     user_id: str
+    agent_id: str = "default"
     session_id: str
     user_message: str
     assistant_message: str
@@ -88,6 +91,7 @@ class GetContextResponse(BaseModel):
 class EndSessionRequest(BaseModel):
     """Request to end a session."""
     user_id: str
+    agent_id: str = "default"
     session_id: str
     trigger_reflection: bool = True
 
@@ -103,11 +107,13 @@ class EndSessionResponse(BaseModel):
 class SearchRequest(BaseModel):
     """Request to search memory."""
     user_id: str
+    agent_id: str = "default"
     query: str
     top_k: int = 5
     search_interactions: bool = True
     search_insights: bool = True
     search_summaries: bool = False
+    search_mode: str = "auto"
 
 
 class SearchResponse(BaseModel):
@@ -131,7 +137,7 @@ class SessionPool:
     """
     Pool of active AgentMemory sessions.
     
-    - Caches sessions by (user_id, session_id)
+    - Caches sessions by (user_id, agent_id, session_id)
     - Handles TTL-based eviction
     - Shares OpenAI client across sessions
     """
@@ -143,6 +149,10 @@ class SessionPool:
         db_path: str = "agent_memory_server.db",
         connection_string: Optional[str] = None,
         cosmos_endpoint: Optional[str] = None,
+        search_endpoint: Optional[str] = None,
+        search_api_key: Optional[str] = None,
+        search_index_prefix: str = "agent-memory",
+        postgres_connection_string: Optional[str] = None,
         database_name: str = "agent_memory_db",
         max_sessions: int = 1000,
         session_ttl_minutes: int = 30
@@ -152,15 +162,19 @@ class SessionPool:
         self.db_path = db_path
         self.connection_string = connection_string
         self.cosmos_endpoint = cosmos_endpoint
+        self.search_endpoint = search_endpoint
+        self.search_api_key = search_api_key
+        self.search_index_prefix = search_index_prefix
+        self.postgres_connection_string = postgres_connection_string
         self.database_name = database_name
         self.max_sessions = max_sessions
         self.session_ttl = timedelta(minutes=session_ttl_minutes)
         
-        # Active sessions: {(user_id, session_id): {"memory": AgentMemory, "last_access": datetime}}
+        # Active sessions: {(user_id, agent_id, session_id): {"memory": AgentMemory, "last_access": datetime}}
         self._sessions: Dict[tuple, Dict[str, Any]] = {}
         self._lock = asyncio.Lock()
 
-    def _build_memory(self, user_id: str, session_id: Optional[str]) -> AgentMemory:
+    def _build_memory(self, user_id: str, agent_id: str, session_id: Optional[str]) -> AgentMemory:
         """Construct an AgentMemory instance with the server's shared config."""
         config = AgentMemoryConfig(
             auto_manage_sessions=False,
@@ -172,31 +186,37 @@ class SessionPool:
 
         return AgentMemory(
             user_id=user_id,
+            agent_id=agent_id,
             openai_client=self.openai_client,
             db_type=self.db_type,
             db_path=self.db_path,
             connection_string=self.connection_string,
             cosmos_endpoint=self.cosmos_endpoint,
+            search_endpoint=self.search_endpoint,
+            search_api_key=self.search_api_key,
+            search_index_prefix=self.search_index_prefix,
+            postgres_connection_string=self.postgres_connection_string,
             config=config,
             session_id=session_id,
             auto_start_session=False,
         )
     
-    def _session_key(self, user_id: str, session_id: str) -> tuple:
-        return (user_id, session_id)
+    def _session_key(self, user_id: str, agent_id: str, session_id: str) -> tuple:
+        return (user_id, agent_id, session_id)
     
     async def get_or_create(
         self,
         user_id: str,
+        agent_id: str,
         session_id: Optional[str] = None,
         start_session: bool = True,
         restore: bool = False,
     ) -> AgentMemory:
         """Get existing session or create new one."""
         session_id = session_id or str(uuid.uuid4())
-        key = self._session_key(user_id, session_id)
+        key = self._session_key(user_id, agent_id, session_id)
         
-        eviction_candidate: Optional[tuple[str, str]] = None
+        eviction_candidate: Optional[tuple[str, str, str]] = None
         async with self._lock:
             if key in self._sessions:
                 self._sessions[key]["last_access"] = _utcnow()
@@ -209,14 +229,14 @@ class SessionPool:
                 )
 
         if eviction_candidate is not None:
-            await self.remove(eviction_candidate[0], eviction_candidate[1], end_session=True)
+            await self.remove(eviction_candidate[0], eviction_candidate[1], eviction_candidate[2], end_session=True)
 
-        memory = self._build_memory(user_id, session_id)
+        memory = self._build_memory(user_id, agent_id, session_id)
         if start_session:
             await memory.start_session(restore=restore)
 
         async with self._lock:
-            actual_key = self._session_key(user_id, memory.session_id)
+            actual_key = self._session_key(user_id, agent_id, memory.session_id)
             self._sessions[actual_key] = {
                 "memory": memory,
                 "last_access": _utcnow(),
@@ -226,9 +246,9 @@ class SessionPool:
         logger.info(f"Created session: user={user_id}, session={memory.session_id}")
         return memory
     
-    async def get(self, user_id: str, session_id: str) -> Optional[AgentMemory]:
+    async def get(self, user_id: str, agent_id: str, session_id: str) -> Optional[AgentMemory]:
         """Get existing session or None."""
-        key = self._session_key(user_id, session_id)
+        key = self._session_key(user_id, agent_id, session_id)
         
         async with self._lock:
             if key in self._sessions:
@@ -236,9 +256,9 @@ class SessionPool:
                 return self._sessions[key]["memory"]
             return None
     
-    async def remove(self, user_id: str, session_id: str, *, end_session: bool = False) -> bool:
+    async def remove(self, user_id: str, agent_id: str, session_id: str, *, end_session: bool = False) -> bool:
         """Remove session from pool."""
-        key = self._session_key(user_id, session_id)
+        key = self._session_key(user_id, agent_id, session_id)
 
         memory = None
         async with self._lock:
@@ -266,12 +286,12 @@ class SessionPool:
             self._sessions.keys(),
             key=lambda k: self._sessions[k]["last_access"]
         )
-        await self.remove(oldest_key[0], oldest_key[1], end_session=True)
+        await self.remove(oldest_key[0], oldest_key[1], oldest_key[2], end_session=True)
         logger.info(f"Evicted session: {oldest_key}")
 
-    async def create_ephemeral(self, user_id: str, session_id: Optional[str] = None) -> AgentMemory:
+    async def create_ephemeral(self, user_id: str, agent_id: str, session_id: Optional[str] = None) -> AgentMemory:
         """Create a lightweight memory instance that is not pooled."""
-        return self._build_memory(user_id, session_id)
+        return self._build_memory(user_id, agent_id, session_id)
     
     async def evict_stale(self) -> int:
         """Evict sessions that have exceeded TTL."""
@@ -284,7 +304,7 @@ class SessionPool:
                     stale_keys.append(key)
         
         for key in stale_keys:
-            await self.remove(key[0], key[1])
+            await self.remove(key[0], key[1], key[2])
         
         return len(stale_keys)
     
@@ -346,6 +366,10 @@ async def lifespan(app: FastAPI):
         db_path=config.agent_memory_db_path,
         connection_string=config.cosmos_connection_string or config.azure_cosmos_connection_string,
         cosmos_endpoint=config.COSMOS_ENDPOINT,
+        search_endpoint=config.azure_ai_search_endpoint,
+        search_api_key=config.azure_ai_search_api_key,
+        search_index_prefix=config.azure_ai_search_index_prefix,
+        postgres_connection_string=config.postgres_connection_string,
         database_name=config.cosmos_db_name,
         max_sessions=config.max_sessions,
         session_ttl_minutes=config.session_ttl_minutes
@@ -437,6 +461,7 @@ async def start_session(request: StartSessionRequest):
     try:
         memory = await session_pool.get_or_create(
             user_id=request.user_id,
+            agent_id=request.agent_id,
             session_id=request.session_id,
             start_session=True,
             restore=request.restore,
@@ -447,6 +472,7 @@ async def start_session(request: StartSessionRequest):
         return StartSessionResponse(
             session_id=memory.session_id,
             user_id=request.user_id,
+            agent_id=request.agent_id,
             context=context,
             insights_loaded=memory.config.include_longterm_insights,
             recent_sessions_count=memory.config.num_recent_sessions_for_init
@@ -463,7 +489,7 @@ async def store_turn(request: StoreTurnRequest):
     
     This triggers automatic pruning/summarization when buffer is full.
     """
-    memory = await session_pool.get(request.user_id, request.session_id)
+    memory = await session_pool.get(request.user_id, request.agent_id, request.session_id)
     if not memory:
         raise HTTPException(
             status_code=404,
@@ -487,17 +513,17 @@ async def store_turn(request: StoreTurnRequest):
 
 
 @app.get("/sessions/context", response_model=GetContextResponse)
-async def get_context(user_id: str, session_id: str):
-    return await _get_context_response(user_id, session_id)
+async def get_context(user_id: str, session_id: str, agent_id: str = "default"):
+    return await _get_context_response(user_id, agent_id, session_id)
 
 
-async def _get_context_response(user_id: str, session_id: str) -> GetContextResponse:
+async def _get_context_response(user_id: str, agent_id: str, session_id: str) -> GetContextResponse:
     """
     Get current session context for prompt injection.
     
     Returns formatted context including insights, summaries, and active turns.
     """
-    memory = await session_pool.get(user_id, session_id)
+    memory = await session_pool.get(user_id, agent_id, session_id)
     if not memory:
         raise HTTPException(
             status_code=404,
@@ -527,7 +553,7 @@ async def end_session(request: EndSessionRequest, background_tasks: BackgroundTa
     
     Triggers reflection (insight extraction) and long-term synthesis in background.
     """
-    memory = await session_pool.get(request.user_id, request.session_id)
+    memory = await session_pool.get(request.user_id, request.agent_id, request.session_id)
     if not memory:
         raise HTTPException(
             status_code=404,
@@ -544,6 +570,7 @@ async def end_session(request: EndSessionRequest, background_tasks: BackgroundTa
         background_tasks.add_task(
             session_pool.remove,
             request.user_id,
+            request.agent_id,
             request.session_id,
         )
         
@@ -566,14 +593,15 @@ async def search_memory(request: SearchRequest):
     Creates a temporary session if needed, searches, then cleans up.
     """
     try:
-        memory = await session_pool.create_ephemeral(request.user_id, session_id=f"search-{uuid.uuid4()}")
+        memory = await session_pool.create_ephemeral(request.user_id, request.agent_id, session_id=f"search-{uuid.uuid4()}")
         try:
             results = await memory.search(
                 query=request.query,
                 top_k=request.top_k,
                 search_interactions=request.search_interactions,
                 search_insights=request.search_insights,
-                search_summaries=request.search_summaries
+                search_summaries=request.search_summaries,
+                search_mode=request.search_mode,
             )
         finally:
             await memory.close()
@@ -588,10 +616,10 @@ async def search_memory(request: SearchRequest):
 
 
 @app.get("/users/{user_id}/insights")
-async def get_user_insights(user_id: str, limit: int = 10):
+async def get_user_insights(user_id: str, limit: int = 10, agent_id: str = "default"):
     """Get long-term insights for a user."""
     try:
-        memory = await session_pool.create_ephemeral(user_id, session_id=f"insights-{uuid.uuid4()}")
+        memory = await session_pool.create_ephemeral(user_id, agent_id, session_id=f"insights-{uuid.uuid4()}")
         try:
             insights = await memory.get_insights(limit=limit)
         finally:
@@ -604,10 +632,10 @@ async def get_user_insights(user_id: str, limit: int = 10):
 
 
 @app.get("/users/{user_id}/sessions")
-async def get_user_sessions(user_id: str, limit: int = 10):
+async def get_user_sessions(user_id: str, limit: int = 10, agent_id: str = "default"):
     """Get recent sessions for a user."""
     try:
-        memory = await session_pool.create_ephemeral(user_id, session_id=f"sessions-{uuid.uuid4()}")
+        memory = await session_pool.create_ephemeral(user_id, agent_id, session_id=f"sessions-{uuid.uuid4()}")
         try:
             sessions = await memory.get_sessions(limit=limit)
         finally:
