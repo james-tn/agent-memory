@@ -9,6 +9,20 @@ Agent Memory is a Python memory layer for AI agents built around Microsoft Agent
 
 Azure AI Search and PostgreSQL now have live-tested direct-library and FastAPI client/server smoke paths in addition to the existing SQLite and Cosmos support.
 
+## Full Documentation
+
+The repo now includes a structured user guide powered by MkDocs.
+
+- Docs source: [`docs/`](docs/)
+- Site config: [`mkdocs.yml`](mkdocs.yml)
+
+Build it locally with:
+
+```bash
+uv sync --extra dev --extra docs
+mkdocs serve
+```
+
 ## Overview
 
 | Capability | Notes |
